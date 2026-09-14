@@ -25,6 +25,9 @@ export async function generateNDTPdfReport(
 
   const site = customer?.sites.find(s => s.id === job.siteId);
   const isL3Approved = job.l3ReviewStatus === 'APPROVED';
+  const wepLabel = job.procedureSnapshot
+    ? `${job.procedureSnapshot.procedureNumber} ${job.procedureSnapshot.revisionNumber} (frozen)`
+    : (job.procedureNumber || null);
 
   // Draft watermark when not L3-certified
   if (!isL3Approved) {
@@ -205,6 +208,17 @@ export async function generateNDTPdfReport(
   const specSplit = doc.splitTextToSize(job.standardSpec || 'ASME Section V / SANS 17020', specValWidth);
   doc.text(specSplit, specValuesX, row2Y);
   row2Y += Math.max(specSplit.length * 3.5, 6);
+
+  if (wepLabel) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text('WEP:', specLabelsX, row2Y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    const wepSplit = doc.splitTextToSize(wepLabel, specValWidth);
+    doc.text(wepSplit, specValuesX, row2Y);
+    row2Y += Math.max(wepSplit.length * 3.5, 6);
+  }
 
   // Lead Inspector
   doc.setFont('helvetica', 'bold');

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Camera, Plus, Trash2, CheckCircle2, XCircle, MinusCircle, Sparkles, Ruler } from 'lucide-react';
-import { InspectionItem, ItemResult, NdtMethod, InspectionPhoto } from '../../types';
+import { InspectionItem, ItemResult, NdtMethod, InspectionPhoto, AcceptanceCriterion } from '../../types';
 import { StorageService } from '../../services/storage';
-import { isItemEvaluated } from '../../utils/validation';
+import { isItemEvaluated, compareReadingToCriterion } from '../../utils/validation';
 
 interface InspectionItemModalProps {
   isOpen: boolean;
@@ -15,6 +15,21 @@ interface InspectionItemModalProps {
   findingsOnly?: boolean;
   /** When true, findings are locked; only Pass/Fail/N/A may change (supervisor) */
   evaluateOnly?: boolean;
+  /** Read-only detail view (e.g. L3 / Admin) — no save */
+  viewOnly?: boolean;
+  /** Prefer frozen job snapshot criteria when provided */
+  criteriaLibrary?: AcceptanceCriterion[];
+}
+
+function defaultUnit(method: NdtMethod): string {
+  return method === 'UT' || method === 'MT' || method === 'PT' ? 'mm' : 'mm';
+}
+
+function defaultAcceptance(method: NdtMethod): string {
+  if (method === 'UT') return 'Min 5.80mm / No planar flaws';
+  if (method === 'MT') return 'No cracks or linear indications > 1.5mm';
+  if (method === 'PT') return 'No relevant linear indications > 1.5mm';
+  return 'ASME B31.3 Table 341.3.2';
 }
 
 export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
@@ -25,50 +40,94 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
   existingItem,
   nextItemNumberSuggestion = 'Weld 001',
   findingsOnly = false,
-  evaluateOnly = false
+  evaluateOnly = false,
+  viewOnly = false,
+  criteriaLibrary
 }) => {
-  const [itemNumber, setItemNumber] = useState(existingItem?.itemNumber || nextItemNumberSuggestion);
-  const [description, setDescription] = useState(existingItem?.description || '');
-  
-  // Readings & Units
-  const [reading, setReading] = useState(existingItem?.reading || '');
-  const [unit, setUnit] = useState(
-    existingItem?.unit || (method === 'UT' ? 'mm' : method === 'MT' || method === 'PT' ? 'mm' : 'mm')
-  );
-
-  const [criterionId, setCriterionId] = useState(existingItem?.criterionId || '');
-  const libraryCriteria = StorageService.getProcedures()
-    .flatMap(p => p.acceptanceCriteria || [])
-    .filter(c => c.isActive !== false && (!c.method || c.method === method));
-
-  const [acceptanceCriteria, setAcceptanceCriteria] = useState(
-    existingItem?.acceptanceCriteria || 
-    (method === 'UT' ? 'Min 5.80mm / No planar flaws' : 
-     method === 'MT' ? 'No cracks or linear indications > 1.5mm' : 
-     method === 'PT' ? 'No relevant linear indications > 1.5mm' : 
-     'ASME B31.3 Table 341.3.2')
-  );
-
-  const [result, setResult] = useState<ItemResult>(
-    existingItem?.result || 'Pending'
-  );
-  const [indication, setIndication] = useState(existingItem?.indication || '');
-  const [notes, setNotes] = useState(existingItem?.notes || '');
-  
-  // Method specifics
-  const [probe, setProbe] = useState(existingItem?.methodDetails?.probe || 'Olympus 5MHz 0.5" Dual Element');
-  const [couplant, setCouplant] = useState(existingItem?.methodDetails?.couplant || 'Ultragel II / Cellulose');
-  const [technique, setTechnique] = useState(
-    existingItem?.methodDetails?.technique || 
-    (method === 'MT' ? 'AC Contour Yoke (Black ink on White Contrast)' : 'Dye Penetrant Solvent Removable (Level 2)')
-  );
-  const [location, setLocation] = useState(existingItem?.methodDetails?.location || '');
-  const [lightLevel, setLightLevel] = useState(existingItem?.methodDetails?.lightLevel || '1150 Lux');
-  const [observation, setObservation] = useState(existingItem?.methodDetails?.observation || '');
-
-  // Photos
-  const [photos, setPhotos] = useState<InspectionPhoto[]>(existingItem?.photos || []);
+  const [itemNumber, setItemNumber] = useState('');
+  const [description, setDescription] = useState('');
+  const [reading, setReading] = useState('');
+  const [unit, setUnit] = useState(defaultUnit(method));
+  const [criterionId, setCriterionId] = useState('');
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState('');
+  const [result, setResult] = useState<ItemResult>('Pending');
+  const [indication, setIndication] = useState('');
+  const [notes, setNotes] = useState('');
+  const [probe, setProbe] = useState('');
+  const [couplant, setCouplant] = useState('');
+  const [technique, setTechnique] = useState('');
+  const [location, setLocation] = useState('');
+  const [lightLevel, setLightLevel] = useState('');
+  const [observation, setObservation] = useState('');
+  const [photos, setPhotos] = useState<InspectionPhoto[]>([]);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
+  const [operatorNote, setOperatorNote] = useState('');
+  const fieldsLocked = evaluateOnly || viewOnly;
+
+  const libraryCriteria = (criteriaLibrary?.length
+    ? criteriaLibrary
+    : StorageService.getProcedures().flatMap(p => p.acceptanceCriteria || [])
+  ).filter(c => c.isActive !== false && (!c.method || c.method === method));
+
+  const selectedCriterion: AcceptanceCriterion | undefined =
+    libraryCriteria.find(c => c.id === criterionId) ||
+    criteriaLibrary?.find(c => c.id === criterionId) ||
+    StorageService.getProcedures()
+      .flatMap(p => p.acceptanceCriteria || [])
+      .find(c => c.id === criterionId);
+
+  const readingCompare = compareReadingToCriterion(reading, unit, selectedCriterion);
+
+  // Hydrate from the submitted item whenever the modal opens (supervisor must see L1 findings)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (existingItem) {
+      setItemNumber(existingItem.itemNumber || '');
+      setDescription(existingItem.description || '');
+      setReading(existingItem.reading || '');
+      setUnit(existingItem.unit || defaultUnit(method));
+      setCriterionId(existingItem.criterionId || '');
+      setAcceptanceCriteria(existingItem.acceptanceCriteria || '');
+      setResult(existingItem.result || 'Pending');
+      setIndication(existingItem.indication || '');
+      setNotes(existingItem.notes || '');
+      setProbe(existingItem.methodDetails?.probe || '');
+      setCouplant(existingItem.methodDetails?.couplant || '');
+      setTechnique(existingItem.methodDetails?.technique || '');
+      setLocation(existingItem.methodDetails?.location || '');
+      setLightLevel(existingItem.methodDetails?.lightLevel || '');
+      setObservation(existingItem.methodDetails?.observation || '');
+      setPhotos(existingItem.photos ? [...existingItem.photos] : []);
+      setOperatorNote(existingItem.operatorNote || '');
+      return;
+    }
+
+    // New item defaults (technician capture)
+    setItemNumber(nextItemNumberSuggestion);
+    setDescription('');
+    setReading('');
+    setUnit(defaultUnit(method));
+    setCriterionId('');
+    setAcceptanceCriteria(defaultAcceptance(method));
+    setResult('Pending');
+    setIndication('');
+    setNotes('');
+    setProbe(method === 'UT' ? 'Olympus 5MHz 0.5" Dual Element' : '');
+    setCouplant(method === 'UT' ? 'Ultragel II / Cellulose' : '');
+    setTechnique(
+      method === 'MT'
+        ? 'AC Contour Yoke (Black ink on White Contrast)'
+        : method === 'PT'
+        ? 'Dye Penetrant Solvent Removable (Level 2)'
+        : ''
+    );
+    setLocation('');
+    setLightLevel(method === 'MT' || method === 'PT' || method === 'VT' ? '1150 Lux' : '');
+    setObservation('');
+    setPhotos([]);
+    setOperatorNote('');
+  }, [isOpen, existingItem?.id, existingItem?.updatedAt, method, nextItemNumberSuggestion, evaluateOnly]);
 
   if (!isOpen) return null;
 
@@ -136,6 +195,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
       unit: unit.trim(),
       acceptanceCriteria: acceptanceCriteria.trim(),
       criterionId: criterionId || undefined,
+      constraintFlags: readingCompare.flags.length ? readingCompare.flags : undefined,
+      operatorNote: operatorNote.trim() || undefined,
       result: finalResult,
       indication: finalResult === 'Fail' ? (indication || 'Non-conformance recorded') : indication,
       notes: notes.trim(),
@@ -184,14 +245,18 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-base text-white">
-                {evaluateOnly
+                {viewOnly
+                  ? 'Inspection Point Details'
+                  : evaluateOnly
                   ? 'Evaluate Inspection Point'
                   : existingItem
                   ? 'Edit Inspection Point'
                   : 'Record Inspection Point'}
               </h3>
               <p className="text-xs text-slate-400">
-                {evaluateOnly
+                {viewOnly
+                  ? 'Read-only view of findings, evaluation, and evidential photos'
+                  : evaluateOnly
                   ? 'Findings are locked — set Pass / Fail / N/A only'
                   : findingsOnly
                   ? 'Record readings, indications, and photos — supervisor will evaluate Pass/Fail'
@@ -209,9 +274,20 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
 
         {/* Modal Form Body */}
         <div className="p-5 space-y-5 overflow-y-auto flex-1 text-slate-200">
-          {evaluateOnly && (
-            <div className="p-3 rounded-xl bg-violet-500/10 border border-violet-500/30 text-xs text-violet-200">
-              Level 1 findings are immutable. You may only set the evaluation result (Pass / Fail / N/A).
+          {(evaluateOnly || viewOnly) && (
+            <div className={`p-3 rounded-xl text-xs space-y-1 border ${
+              viewOnly
+                ? 'bg-slate-800/60 border-slate-600 text-slate-300'
+                : 'bg-violet-500/10 border-violet-500/30 text-violet-200'
+            }`}>
+              <p className={`font-semibold ${viewOnly ? 'text-slate-100' : 'text-violet-100'}`}>
+                {viewOnly ? 'Read-only inspection record' : 'Level 1 findings (read-only)'}
+              </p>
+              <p>
+                {viewOnly
+                  ? 'Findings, evaluation, and photos are shown for review. No edits in this view.'
+                  : 'Review the technician’s recorded reading, unit, criteria, notes, and photos below. You may only set Pass / Fail / N/A — you cannot change their measurements.'}
+              </p>
             </div>
           )}
           
@@ -226,8 +302,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                 value={itemNumber}
                 onChange={(e) => setItemNumber(e.target.value)}
                 placeholder="e.g. Weld 001, Pipe Section A"
-                readOnly={evaluateOnly}
-                className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-medium focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                readOnly={fieldsLocked}
+                className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-medium focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                 required
               />
             </div>
@@ -241,14 +317,14 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="e.g. 6-inch Sch 40 Butt Weld / 12 o'clock"
-                readOnly={evaluateOnly}
-                className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-medium focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                readOnly={fieldsLocked}
+                className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-medium focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
               />
             </div>
           </div>
 
           {/* Quick presets for description */}
-          {!evaluateOnly && (
+          {!fieldsLocked && (
           <div className="flex flex-wrap gap-1.5 items-center">
             <span className="text-[11px] text-slate-500 flex items-center gap-1">
               <Sparkles className="w-3 h-3" /> Quick fill:
@@ -287,8 +363,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                   value={reading}
                   onChange={(e) => setReading(e.target.value)}
                   placeholder={method === 'UT' ? 'e.g. 7.12' : method === 'MT' ? 'e.g. 0 (or crack length 18)' : 'e.g. 0.5'}
-                  readOnly={evaluateOnly}
-                  className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono font-bold text-base focus:outline-none focus:border-sky-500 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  readOnly={fieldsLocked}
+                  className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono font-bold text-base focus:outline-none focus:border-sky-500 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                 />
               </div>
 
@@ -300,10 +376,10 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                   value={unit}
                   onChange={(e) => setUnit(e.target.value)}
                   placeholder="Unit (mm, dB, Lux)"
-                  readOnly={evaluateOnly}
-                  className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-semibold text-xs focus:outline-none focus:border-sky-500 mb-1.5 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  readOnly={fieldsLocked}
+                  className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-semibold text-xs focus:outline-none focus:border-sky-500 mb-1.5 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                 />
-                {!evaluateOnly && (
+                {!fieldsLocked && (
                 <div className="flex flex-wrap gap-1.5">
                   {['mm', 'dB', 'Lux', 'kg', '%'].map(u => (
                     <button
@@ -325,7 +401,7 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
             {/* Acceptance Criteria */}
             <div>
               <label className="block text-[11px] font-semibold text-slate-300 mb-1">Acceptance Standard / Criteria</label>
-              {!evaluateOnly && libraryCriteria.length > 0 && (
+              {!fieldsLocked && libraryCriteria.length > 0 && (
                 <select
                   value={criterionId}
                   onChange={(e) => {
@@ -347,14 +423,44 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                 value={acceptanceCriteria}
                 onChange={(e) => setAcceptanceCriteria(e.target.value)}
                 placeholder="e.g. ASME B31.3 Table 341.3.2 / Min 5.80mm"
-                readOnly={evaluateOnly}
-                className={`w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-medium focus:outline-none focus:border-sky-500 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                readOnly={fieldsLocked}
+                className={`w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-medium focus:outline-none focus:border-sky-500 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''} ${readingCompare.likelyFail ? 'border-rose-500/50' : ''}`}
               />
+              {readingCompare.status === 'outside' && (
+                <div className="mt-2 p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/40 text-[11px] text-rose-200 space-y-1">
+                  <p className="font-bold text-rose-100">Outside acceptance band — likely Fail (advisory)</p>
+                  {readingCompare.reasons.map((r, i) => (
+                    <p key={i}>{r}</p>
+                  ))}
+                  <p className="text-rose-300/80">
+                    {findingsOnly
+                      ? 'Result stays Pending — supervisor will evaluate. This flag is decision-support only.'
+                      : evaluateOnly
+                      ? 'Evaluation aid for supervisor — you still choose Pass / Fail / N/A explicitly.'
+                      : 'Advisory only — you still set Pass / Fail / N/A explicitly.'}
+                  </p>
+                  {!fieldsLocked && (
+                    <input
+                      type="text"
+                      value={operatorNote}
+                      onChange={(e) => setOperatorNote(e.target.value)}
+                      placeholder="Optional note (e.g. re-check pending / surface irregularity)"
+                      className="mt-1 w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-rose-500/30 text-rose-100 text-xs"
+                    />
+                  )}
+                  {(evaluateOnly || viewOnly) && existingItem?.operatorNote && (
+                    <p className="text-rose-100/90">L1 note: {existingItem.operatorNote}</p>
+                  )}
+                </div>
+              )}
+              {readingCompare.status === 'within' && selectedCriterion?.ruleType && selectedCriterion.ruleType !== 'TextOnlyLegacy' && (
+                <p className="mt-1.5 text-[11px] text-emerald-400/90">Reading is within the structured acceptance band.</p>
+              )}
             </div>
           </div>
 
           {/* Evaluation — L1 findings-only hides this; supervisor evaluateOnly shows it with locked findings */}
-          {findingsOnly && !evaluateOnly ? (
+          {findingsOnly && !evaluateOnly && !viewOnly ? (
             <div className="p-3.5 rounded-xl bg-violet-500/10 border border-violet-500/30 space-y-2">
               <p className="text-xs font-bold text-violet-300 uppercase tracking-wider">Findings for supervisor evaluation</p>
               <p className="text-xs text-slate-400">
@@ -383,12 +489,13 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                 <div className="grid grid-cols-3 gap-3">
                   <button
                     type="button"
-                    onClick={() => setResult('Pass')}
+                    disabled={viewOnly}
+                    onClick={() => !viewOnly && setResult('Pass')}
                     className={`py-3.5 px-3 rounded-xl font-bold flex flex-col sm:flex-row items-center justify-center gap-2 transition-all active:scale-95 shadow-md ${
                       result === 'Pass'
                         ? 'bg-emerald-600 text-white ring-2 ring-emerald-400 shadow-emerald-600/30'
                         : 'bg-slate-800 text-slate-400 hover:bg-slate-750 hover:text-slate-200 border border-slate-700'
-                    }`}
+                    } ${viewOnly ? 'opacity-70 cursor-default pointer-events-none' : ''}`}
                   >
                     <CheckCircle2 className="w-5 h-5 text-emerald-300" />
                     <span className="text-base tracking-wide">PASS</span>
@@ -396,12 +503,13 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setResult('Fail')}
+                    disabled={viewOnly}
+                    onClick={() => !viewOnly && setResult('Fail')}
                     className={`py-3.5 px-3 rounded-xl font-bold flex flex-col sm:flex-row items-center justify-center gap-2 transition-all active:scale-95 shadow-md ${
                       result === 'Fail'
                         ? 'bg-rose-600 text-white ring-2 ring-rose-400 shadow-rose-600/30 animate-pulse'
                         : 'bg-slate-800 text-slate-400 hover:bg-slate-750 hover:text-slate-200 border border-slate-700'
-                    }`}
+                    } ${viewOnly ? 'opacity-70 cursor-default pointer-events-none' : ''}`}
                   >
                     <XCircle className="w-5 h-5 text-rose-300" />
                     <span className="text-base tracking-wide">FAIL</span>
@@ -409,12 +517,13 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setResult('N/A')}
+                    disabled={viewOnly}
+                    onClick={() => !viewOnly && setResult('N/A')}
                     className={`py-3.5 px-3 rounded-xl font-bold flex flex-col sm:flex-row items-center justify-center gap-2 transition-all active:scale-95 shadow-md ${
                       result === 'N/A'
                         ? 'bg-slate-700 text-white ring-2 ring-slate-400'
                         : 'bg-slate-800 text-slate-400 hover:bg-slate-750 hover:text-slate-200 border border-slate-700'
-                    }`}
+                    } ${viewOnly ? 'opacity-70 cursor-default pointer-events-none' : ''}`}
                   >
                     <MinusCircle className="w-5 h-5 text-slate-300" />
                     <span className="text-base tracking-wide">N/A</span>
@@ -432,8 +541,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                     value={indication}
                     onChange={(e) => setIndication(e.target.value)}
                     placeholder="e.g. 18mm linear toe crack at stop-start / Lack of sidewall fusion"
-                    readOnly={evaluateOnly}
-                    className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-rose-500/40 text-rose-200 font-medium focus:outline-none focus:border-rose-400 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    readOnly={fieldsLocked}
+                    className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-rose-500/40 text-rose-200 font-medium focus:outline-none focus:border-rose-400 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                     required={result === 'Fail' && !evaluateOnly}
                   />
                 </div>
@@ -455,8 +564,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                     type="text"
                     value={probe}
                     onChange={(e) => setProbe(e.target.value)}
-                    readOnly={evaluateOnly}
-                    className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    readOnly={fieldsLocked}
+                    className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                   />
                 </div>
                 <div>
@@ -465,8 +574,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                     type="text"
                     value={couplant}
                     onChange={(e) => setCouplant(e.target.value)}
-                    readOnly={evaluateOnly}
-                    className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    readOnly={fieldsLocked}
+                    className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                   />
                 </div>
               </div>
@@ -480,8 +589,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                     type="text"
                     value={technique}
                     onChange={(e) => setTechnique(e.target.value)}
-                    readOnly={evaluateOnly}
-                    className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    readOnly={fieldsLocked}
+                    className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                   />
                 </div>
                 <div>
@@ -491,8 +600,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                     value={lightLevel}
                     onChange={(e) => setLightLevel(e.target.value)}
                     placeholder="e.g. 1150 Lux"
-                    readOnly={evaluateOnly}
-                    className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    readOnly={fieldsLocked}
+                    className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                   />
                 </div>
               </div>
@@ -506,8 +615,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                   value={observation}
                   onChange={(e) => setObservation(e.target.value)}
                   placeholder="e.g. Clean weld face, minor undercut < 0.5mm"
-                  readOnly={evaluateOnly}
-                  className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  readOnly={fieldsLocked}
+                  className={`w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                 />
               </div>
             )}
@@ -523,8 +632,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="e.g. Ground flush prior to test. Re-inspection required after grinding."
-              readOnly={evaluateOnly}
-              className={`w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+              readOnly={fieldsLocked}
+              className={`w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
             />
           </div>
 
@@ -536,7 +645,7 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                 Evidential Photos ({photos.length})
               </label>
 
-              {!evaluateOnly && (
+              {!fieldsLocked && (
               <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold active:scale-95 transition-all shadow-md shadow-sky-600/20">
                 <Camera className="w-3.5 h-3.5" />
                 <span>Take / Add Photo</span>
@@ -568,7 +677,7 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                       alt={`Photo ${idx + 1}`}
                       className="w-full h-24 object-cover rounded-lg bg-slate-900"
                     />
-                    {!evaluateOnly && (
+                    {!fieldsLocked && (
                     <button
                       type="button"
                       onClick={() => handleRemovePhoto(p.id)}
@@ -583,8 +692,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
                       value={p.caption || ''}
                       onChange={(e) => handleUpdatePhotoCaption(p.id, e.target.value)}
                       placeholder="Photo caption..."
-                      readOnly={evaluateOnly}
-                      className={`mt-1.5 w-full text-[11px] px-2 py-1 rounded bg-slate-900 border border-slate-800 text-slate-300 focus:outline-none focus:border-sky-500 ${evaluateOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+                      readOnly={fieldsLocked}
+                      className={`mt-1.5 w-full text-[11px] px-2 py-1 rounded bg-slate-900 border border-slate-800 text-slate-300 focus:outline-none focus:border-sky-500 ${fieldsLocked ? 'opacity-70 cursor-not-allowed' : ''}`}
                     />
                   </div>
                 ))}
@@ -600,29 +709,31 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
             onClick={onClose}
             className="px-4 py-2.5 rounded-xl border border-slate-700 text-slate-300 font-semibold text-sm hover:bg-slate-800 active:scale-95 transition-all"
           >
-            Cancel
+            {viewOnly ? 'Close' : 'Cancel'}
           </button>
 
-          <div className="flex items-center gap-2.5">
-            {!existingItem && !evaluateOnly && (
+          {!viewOnly && (
+            <div className="flex items-center gap-2.5">
+              {!existingItem && !evaluateOnly && (
+                <button
+                  type="button"
+                  onClick={() => handleSubmit(true)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold text-sm border border-sky-500/30 flex items-center gap-1.5 active:scale-95 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Save & Add Another</span>
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={() => handleSubmit(true)}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold text-sm border border-sky-500/30 flex items-center gap-1.5 active:scale-95 transition-all"
+                onClick={() => handleSubmit(false)}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-cyan-500 hover:from-sky-500 hover:to-cyan-400 text-white font-bold text-sm shadow-lg shadow-sky-500/25 active:scale-95 transition-all"
               >
-                <Plus className="w-4 h-4" />
-                <span>Save & Add Another</span>
+                {evaluateOnly ? 'Save Evaluation' : existingItem ? 'Update Item' : 'Save Item'}
               </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => handleSubmit(false)}
-              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-cyan-500 hover:from-sky-500 hover:to-cyan-400 text-white font-bold text-sm shadow-lg shadow-sky-500/25 active:scale-95 transition-all"
-            >
-              {evaluateOnly ? 'Save Evaluation' : existingItem ? 'Update Item' : 'Save Item'}
-            </button>
-          </div>
+            </div>
+          )}
         </div>
 
       </div>

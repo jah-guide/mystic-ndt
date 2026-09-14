@@ -56,7 +56,12 @@ export type AuditAction =
   | 'INCIDENT_RESOLVED'
   | 'PROCEDURE_CREATED'
   | 'PROCEDURE_UPDATED'
-  | 'PROCEDURE_APPROVED';
+  | 'PROCEDURE_APPROVED'
+  | 'PROCEDURE_SNAPSHOT'
+  | 'PROCEDURE_SNAPSHOT_REPLACE'
+  | 'FINAL_WITHOUT_L3'
+  | 'MARK_DELIVERED'
+  | 'AUDIT_PACK_EXPORTED';
 
 export interface AuditEntry {
   id: string;
@@ -93,11 +98,32 @@ export interface Inspector {
   certification: string; // e.g., "SAQCC / ISO 9712 Level 2" or "ISO 9712 Level 3"
   certNumber: string;    // e.g., "SAQCC-NDT-8492"
   level: 'Level 1' | 'Level 2' | 'Level 3';
-  certExpiryDate: string; // YYYY-MM-DD
-  methods: NdtMethod[];  // UT, MT, PT, VT
+  certExpiryDate: string; // YYYY-MM-DD — legacy summary; assignment uses methodCertificates
+  methods: NdtMethod[];  // UT, MT, PT, VT — derived from methodCertificates when present
+  /** Per-method ISO 9712 / SAQCC certificates (assignment source of truth) */
+  methodCertificates?: MethodCertificate[];
   /** For Level 1 technicians: the ID of their supervising Level 2 or Level 3 */
   defaultSupervisorId?: string;
   notes?: string;
+}
+
+export type MethodCertVerificationStatus = 'PendingVerification' | 'Verified' | 'Rejected';
+
+/** Employer-held method certificate record (upload + verify). Verified ≠ certification-body issuance. */
+export interface MethodCertificate {
+  id: string;
+  method: NdtMethod;
+  level: 'Level 1' | 'Level 2' | 'Level 3';
+  certNumber: string;
+  issuer: string;
+  issueDate: string;
+  expiryDate: string;
+  documentDataUrl?: string;
+  documentFileName?: string;
+  verificationStatus: MethodCertVerificationStatus;
+  verifiedAt?: string;
+  verifiedByName?: string;
+  rejectionReason?: string;
 }
 
 export interface CalibrationRecord {
@@ -145,6 +171,15 @@ export interface Equipment {
   /** Full possession history */
   traceabilityLog?: EquipmentTraceabilityEntry[];
 
+  /** Current calibration certificate document (employer file — mock upload) */
+  calibrationCertificate?: {
+    certificateNumber: string;
+    laboratory: string;
+    documentDataUrl?: string;
+    documentFileName?: string;
+    uploadedAt?: string;
+  };
+
   notes?: string;
 }
 
@@ -168,6 +203,8 @@ export interface EquipmentIncident {
 }
 
 /** A reusable acceptance criterion from the L3-managed library */
+export type CriterionRuleType = 'NumericMin' | 'NumericMax' | 'NumericRange' | 'TextOnlyLegacy';
+
 export interface AcceptanceCriterion {
   id: string;
   label: string;          // e.g., "ASME B31.3 — Minimum Wall Thickness"
@@ -177,7 +214,40 @@ export interface AcceptanceCriterion {
   createdByL3Id: string;
   createdAt: string;
   isActive: boolean;
+  /** Structured compare rule — TextOnlyLegacy / missing = non-comparable */
+  ruleType?: CriterionRuleType;
+  valueMin?: number;
+  valueMax?: number;
+  valueUnit?: string;
+  /** Explicit skip for auto-compare (qualitative-only criteria) */
+  nonComparable?: boolean;
 }
+
+export type TempRangeKind = 'ambient' | 'surface' | 'couplant';
+
+export interface TemperatureRange {
+  min: number;
+  max: number;
+  unit: '°C' | '°F';
+  kind: TempRangeKind;
+  required?: boolean;
+}
+
+export interface ProcedureEquipmentSlot {
+  id: string;
+  label: string;
+  category: NonNullable<Equipment['category']>;
+  typeHint?: string;
+  quantity: number;
+  calibrationRequired: boolean;
+  notes?: string;
+}
+
+/** Advisory flags from procedure / criteria compare (never auto-write Pass/Fail) */
+export type ConstraintFlag =
+  | 'OUTSIDE_CRITERION'
+  | 'OUTSIDE_PROC_TEMP'
+  | 'EQUIP_SLOT_MISMATCH';
 
 /** Written Examination Procedure (WEP) — authored and approved by Level 3 */
 export interface NdtProcedure {
@@ -188,9 +258,14 @@ export interface NdtProcedure {
   revisionNumber: string;   // e.g., "Rev 3"
   scope: string;            // e.g., "Applies to ASME B31.3 carbon steel piping ≥ DN50"
   standardRef: string;      // e.g., "ASME Section V Art. 4 / ASME B31.3"
-  equipmentRequired: string[];  // e.g., ["Ultrasonic Thickness Gauge", "Calibration Block"]
+  /** Legacy free-text list — prefer equipmentSlots for compare/suggest */
+  equipmentRequired: string[];
+  /** Structured equipment requirement slots (category → register suggest) */
+  equipmentSlots?: ProcedureEquipmentSlot[];
   surface: string;          // e.g., "Wire brushed and solvent degreased"
-  temperature: string;      // e.g., "0°C – 60°C"
+  /** Legacy display string — prefer temperatureRanges for compare */
+  temperature: string;
+  temperatureRanges?: TemperatureRange[];
   acceptanceCriteria: AcceptanceCriterion[];
   generalNotes?: string;
   status: ProcedureStatus;
@@ -235,6 +310,10 @@ export interface InspectionItem {
   acceptanceCriteria: string; // e.g., "ASME B31.3 Table 341.3.2" or "Min 5.5mm"
   /** Optional link back to the library criterion used */
   criterionId?: string;
+  /** Advisory compare flags — never treated as evaluated Pass/Fail */
+  constraintFlags?: ConstraintFlag[];
+  /** Operator note when proceeding outside advisory band / temp */
+  operatorNote?: string;
   result: ItemResult;
   indication?: string;      // defect or indication note
   notes?: string;
@@ -243,7 +322,23 @@ export interface InspectionItem {
   updatedAt: string;
 }
 
-/** Immutable snapshot of an L1 findings revision (kept after supervisor reject / supersede) */
+/** Frozen copy of WEP + criteria bound to a job (procedure control) */
+export interface ProcedureSnapshot {
+  procedureId: string;
+  procedureNumber: string;
+  title: string;
+  method: NdtMethod;
+  revisionNumber: string;
+  standardRef?: string;
+  acceptanceCriteria: AcceptanceCriterion[];
+  temperatureRanges?: TemperatureRange[];
+  temperature?: string;
+  equipmentSlots?: ProcedureEquipmentSlot[];
+  snapshotAt: string;
+  snapshotSource: 'assign' | 'start' | 'replace';
+  replacedReason?: string;
+}
+
 export interface FindingsRevisionSnapshot {
   revision: number;
   items: InspectionItem[];
@@ -261,6 +356,8 @@ export interface Job {
   customerId: string;
   siteId: string;
   inspectionDate: string;   // YYYY-MM-DD
+  /** Optional client / internal delivery due date (YYYY-MM-DD) — ops KPI only */
+  dueDate?: string;
   inspectorId: string;
   method: NdtMethod;
   scope: string;            // e.g., "Ultrasonic thickness measurement of boiler feed lines"
@@ -275,10 +372,18 @@ export interface Job {
   /** Optional link to the L3-approved written examination procedure */
   procedureId?: string;
   procedureNumber?: string;
+  /** Frozen WEP + criteria at assign/start — source of truth for field/PDF after freeze */
+  procedureSnapshot?: ProcedureSnapshot;
 
   generalNotes?: string;
   surfaceCondition?: string; // e.g. "Cleaned, ground flush"
-  temperature?: string;     // e.g. "21°C"
+  temperature?: string;     // e.g. "21°C" — display
+  /** Numeric job temperature (°C) for WEP range compare */
+  temperatureC?: number;
+  /** Required when submitting L1 findings while outside WEP temp range */
+  temperatureOutOfRangeReason?: string;
+  /** Optional slot → equipment assignment from WEP */
+  equipmentBySlot?: { slotId: string; equipmentId: string }[];
   status: JobStatus;
   overallResult: OverallResult;
   items: InspectionItem[];
@@ -312,6 +417,17 @@ export interface Job {
   l3Comments?: string;
   l3ReviewedAt?: string;
   l3RejectionReason?: string;
+
+  /** Admin waiver: treat as Final for delivery without L3 approve (does not strip PDF DRAFT watermark) */
+  finalWithoutL3?: boolean;
+  finalWithoutL3Reason?: string;
+  /** Commercial delivery record (gate: L3 approved OR finalWithoutL3) */
+  delivery?: {
+    recipient: string;
+    channel: 'Email mock' | 'Handed over' | 'Other';
+    deliveredAt: string;
+    recordedBy: string;
+  };
 
   // Complete Audit Trail
   auditTrail: AuditEntry[];

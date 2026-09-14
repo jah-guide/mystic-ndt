@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  Briefcase, Plus, Search, Filter, FileText, Eye, Edit3, Trash2, 
+  Briefcase, Plus, Search, Filter, FileText, Edit3, Trash2, 
   Calendar, UserCheck, ShieldCheck, CheckCircle2, ChevronRight
 } from 'lucide-react';
 import { Job, Customer, Inspector, Equipment, CompanySettings, NdtMethod, JobStatus, NdtProcedure } from '../../types';
@@ -206,7 +206,11 @@ export const JobList: React.FC<JobListProps> = ({
                   const inspector = inspectors.find(i => i.id === job.inspectorId);
 
                   return (
-                    <tr key={job.id} className="hover:bg-slate-800/40 transition-colors">
+                    <tr
+                      key={job.id}
+                      className="hover:bg-slate-800/40 transition-colors cursor-pointer"
+                      onClick={() => onOpenJobDetail(job)}
+                    >
                       
                       {/* Job / Report */}
                       <td className="py-3.5 px-4">
@@ -262,20 +266,9 @@ export const JobList: React.FC<JobListProps> = ({
                         </span>
                       </td>
 
-                      {/* Actions */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                      {/* Actions — stopPropagation so edit/delete/PDF don't open cockpit */}
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="inline-flex items-center gap-1.5">
-                          {/* Open Cockpit */}
-                          <button
-                            type="button"
-                            onClick={() => onOpenJobDetail(job)}
-                            className="p-1.5 rounded-lg text-sky-400 hover:text-white hover:bg-sky-600/30 transition-colors"
-                            title="Open Inspection Cockpit"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-
-                          {/* PDF Report */}
                           {job.status === 'Completed' && (
                             <button
                               type="button"
@@ -287,7 +280,6 @@ export const JobList: React.FC<JobListProps> = ({
                             </button>
                           )}
 
-                          {/* Edit Job */}
                           <button
                             type="button"
                             onClick={() => {
@@ -300,7 +292,6 @@ export const JobList: React.FC<JobListProps> = ({
                             <Edit3 className="w-4 h-4" />
                           </button>
 
-                          {/* Delete Job */}
                           <button
                             type="button"
                             onClick={() => handleDeleteJob(job.id)}

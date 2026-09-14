@@ -45,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-sm sm:text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent truncate">
-                  NDT FIELD INSPECT
+                  MysticNDT
                 </span>
                 <span className="hidden sm:inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30 uppercase tracking-wide">
                   Demo
@@ -152,7 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
             );
           })}
           <span className="text-[10px] text-slate-500 ml-auto hidden lg:inline">
-            Path: Lesego 0003/0005 → Thabo Supervise 0004 → complete → L3 → Certificate
+            Path: Reset → Thabo Supervise queue → WEP frozen on assign → Complete → L3/Final → Audit pack / Mark delivered
           </span>
         </div>
       </div>

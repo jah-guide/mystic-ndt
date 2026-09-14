@@ -229,20 +229,25 @@ export const App: React.FC = () => {
                 customers={customers}
                 jobs={jobs}
                 onCustomerUpdated={loadAllData}
+                onOpenJob={(id) => setActiveJobId(id)}
               />
             )}
 
             {adminTab === 'inspectors' && (
               <InspectorManagement
                 inspectors={inspectors}
+                jobs={jobs}
                 onInspectorUpdated={loadAllData}
+                onOpenJob={(id) => setActiveJobId(id)}
               />
             )}
 
             {adminTab === 'equipment' && (
               <EquipmentManagement
                 equipment={equipment}
+                jobs={jobs}
                 onEquipmentUpdated={loadAllData}
+                onOpenJob={(id) => setActiveJobId(id)}
               />
             )}
 

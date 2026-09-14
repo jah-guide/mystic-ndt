@@ -267,7 +267,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 const inspector = inspectors.find(i => i.id === job.inspectorId);
 
                 return (
-                  <tr key={job.id} className="hover:bg-slate-800/40 transition-colors">
+                  <tr
+                    key={job.id}
+                    className="hover:bg-slate-800/40 transition-colors cursor-pointer"
+                    onClick={() => onOpenJobDetail(job)}
+                  >
                     <td className="py-3 px-4 font-mono font-black text-white">
                       {job.jobNumber}
                       {job.reportNumber && (
@@ -312,15 +316,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </span>
                     </td>
 
-                    <td className="py-3 px-4 text-right whitespace-nowrap">
+                    <td className="py-3 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                       <div className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => onOpenJobDetail(job)}
-                          className="px-2.5 py-1 rounded-lg bg-sky-600/20 hover:bg-sky-600/40 text-sky-300 text-xs font-bold border border-sky-500/30 transition-all"
-                        >
-                          Inspect
-                        </button>
                         {job.status === 'Completed' && (
                           <button
                             type="button"

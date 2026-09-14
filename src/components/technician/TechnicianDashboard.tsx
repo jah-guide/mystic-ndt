@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { 
-  Briefcase, CheckCircle2, Clock, Search, ChevronRight, Calendar, 
+import React, { useState, useEffect } from 'react';
+import {
+  Briefcase, CheckCircle2, Clock, Search, ChevronRight, Calendar,
   MapPin, UserCheck
 } from 'lucide-react';
 import { Job, Customer, Inspector, Equipment, CompanySettings } from '../../types';
@@ -27,19 +27,26 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
   currentInspectorId,
   onJobUpdated
 }) => {
+  const toSuperviseJobs = jobs.filter(
+    j => j.supervisorId === currentInspectorId && j.status === 'Awaiting Supervisor'
+  );
+  const revisionJobs = jobs.filter(
+    j => j.supervisorId === currentInspectorId && j.status === 'Revision Required'
+  );
+
   const [activeTab, setActiveTab] = useState<'my_jobs' | 'to_supervise' | 'completed'>('my_jobs');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveTab(toSuperviseJobs.length > 0 ? 'to_supervise' : 'my_jobs');
+  }, [currentInspectorId]);
 
   const currentInspector = inspectors.find(i => i.id === currentInspectorId);
 
   const myLeadJobs = jobs.filter(j => j.inspectorId === currentInspectorId);
   const activeJobs = myLeadJobs.filter(j => j.status !== 'Completed');
   const completedJobs = myLeadJobs.filter(j => j.status === 'Completed');
-
-  const toSuperviseJobs = jobs.filter(
-    j => j.supervisorId === currentInspectorId && j.status === 'Awaiting Supervisor'
-  );
 
   const displayedJobs = (
     activeTab === 'my_jobs' ? activeJobs :
@@ -62,6 +69,93 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
   });
 
   const selectedJob = jobs.find(j => j.id === selectedJobId);
+
+  const renderJobCard = (job: Job, isSuperviseCard: boolean) => {
+    const customer = customers.find(c => c.id === job.customerId);
+    const site = customer?.sites.find(s => s.id === job.siteId);
+    const lead = inspectors.find(i => i.id === job.inspectorId);
+    const queueTime = job.updatedAt || job.createdAt;
+
+    return (
+      <div
+        key={job.id}
+        onClick={() => setSelectedJobId(job.id)}
+        className={`group bg-slate-900 border rounded-2xl p-4 sm:p-5 shadow-lg transition-all cursor-pointer active:scale-99 ${
+          isSuperviseCard
+            ? 'border-violet-500/40 hover:border-violet-400/60 hover:shadow-violet-500/10'
+            : 'border-slate-800 hover:border-sky-500/50 hover:shadow-sky-500/5'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="font-black text-base text-white tracking-tight group-hover:text-sky-400 transition-colors">
+                {job.jobNumber}
+              </span>
+              <Badge variant="method" value={job.method} size="sm">
+                {job.method}
+              </Badge>
+              <Badge variant="status" value={job.status} size="sm">
+                {job.status}
+              </Badge>
+              {job.status === 'Completed' && (
+                <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                  job.overallResult === 'PASS'
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                    : job.overallResult === 'FAIL'
+                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                    : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                }`}>
+                  {job.overallResult}
+                </span>
+              )}
+            </div>
+
+            <h3 className="font-bold text-sm text-slate-200">
+              {customer?.companyName || 'Unknown Customer'}
+            </h3>
+
+            {isSuperviseCard && lead && (
+              <p className="text-xs text-violet-300 mt-1 font-medium">
+                Lead: {lead.fullName} — {job.status === 'Revision Required' ? 'revising after reject' : 'evaluate findings'}
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-400">
+              <span className="flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5 text-sky-400" />
+                {site?.name || 'On Site'}
+              </span>
+              <span className="flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-sky-400" />
+                {formatDate(job.inspectionDate)}
+              </span>
+              {isSuperviseCard && (
+                <span className="text-slate-500">Updated {formatDate(queueTime.slice(0, 10))}</span>
+              )}
+              <span className="text-slate-300 font-medium">
+                {job.items.length} item{job.items.length === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            {job.scope && (
+              <p className="text-xs text-slate-400 mt-2 line-clamp-1">
+                {job.scope}
+              </p>
+            )}
+          </div>
+
+          <div className={`self-center p-2 rounded-xl transition-all ${
+            isSuperviseCard
+              ? 'bg-violet-900/40 text-violet-300 group-hover:bg-violet-600 group-hover:text-white'
+              : 'bg-slate-800 text-slate-400 group-hover:text-white group-hover:bg-sky-600'
+          }`}>
+            <ChevronRight className="w-5 h-5" />
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   if (selectedJob) {
     const customer = customers.find(c => c.id === selectedJob.customerId);
@@ -87,13 +181,12 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
 
   return (
     <div className="max-w-3xl mx-auto px-3 sm:px-6 pb-24 pt-4">
-      
       <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl mb-5">
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wider text-sky-400">
-                Technician Cockpit
+                {toSuperviseJobs.length > 0 ? 'Supervisor Home' : 'Technician Cockpit'}
               </span>
               {currentInspector?.level === 'Level 1' && (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-violet-500/20 text-violet-300 border border-violet-500/30">
@@ -115,7 +208,7 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
               <span className="text-2xl sm:text-3xl font-black text-sky-400">{activeJobs.length}</span>
               <span className="text-[11px] uppercase font-bold text-slate-400 block">My Active</span>
             </div>
-            {toSuperviseJobs.length > 0 && (
+            {(toSuperviseJobs.length > 0 || revisionJobs.length > 0) && (
               <div>
                 <span className="text-lg font-black text-violet-400">{toSuperviseJobs.length}</span>
                 <span className="text-[10px] uppercase font-bold text-violet-300/80 block">To Supervise</span>
@@ -179,106 +272,48 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
         </div>
       </div>
 
-      {displayedJobs.length === 0 ? (
-        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-8 text-center text-slate-400">
-          <Briefcase className="w-10 h-10 text-slate-600 mx-auto mb-2" />
-          <h3 className="font-bold text-sm text-slate-300">No jobs found</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            {activeTab === 'my_jobs'
-              ? 'No active jobs assigned to you right now.'
-              : activeTab === 'to_supervise'
-              ? 'No Level 1 jobs awaiting your evaluation.'
-              : 'No completed inspection reports found.'}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {displayedJobs.map(job => {
-            const customer = customers.find(c => c.id === job.customerId);
-            const site = customer?.sites.find(s => s.id === job.siteId);
-            const lead = inspectors.find(i => i.id === job.inspectorId);
-            const isSuperviseCard = activeTab === 'to_supervise';
-
-            return (
-              <div
-                key={job.id}
-                onClick={() => setSelectedJobId(job.id)}
-                className={`group bg-slate-900 border rounded-2xl p-4 sm:p-5 shadow-lg transition-all cursor-pointer active:scale-99 ${
-                  isSuperviseCard
-                    ? 'border-violet-500/40 hover:border-violet-400/60 hover:shadow-violet-500/10'
-                    : 'border-slate-800 hover:border-sky-500/50 hover:shadow-sky-500/5'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="font-black text-base text-white tracking-tight group-hover:text-sky-400 transition-colors">
-                        {job.jobNumber}
-                      </span>
-                      <Badge variant="method" value={job.method} size="sm">
-                        {job.method}
-                      </Badge>
-                      <Badge variant="status" value={job.status} size="sm">
-                        {job.status}
-                      </Badge>
-                      {job.status === 'Completed' && (
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
-                          job.overallResult === 'PASS'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : job.overallResult === 'FAIL'
-                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                            : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                        }`}>
-                          {job.overallResult}
-                        </span>
-                      )}
-                    </div>
-
-                    <h3 className="font-bold text-sm text-slate-200">
-                      {customer?.companyName || 'Unknown Customer'}
-                    </h3>
-
-                    {isSuperviseCard && lead && (
-                      <p className="text-xs text-violet-300 mt-1 font-medium">
-                        Level 1 lead: {lead.fullName} — evaluate findings
-                      </p>
-                    )}
-
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-400">
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5 text-sky-400" />
-                        {site?.name || 'On Site'}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5 text-sky-400" />
-                        {formatDate(job.inspectionDate)}
-                      </span>
-                      <span className="text-slate-300 font-medium">
-                        {job.items.length} item{job.items.length === 1 ? '' : 's'}
-                      </span>
-                    </div>
-
-                    {job.scope && (
-                      <p className="text-xs text-slate-400 mt-2 line-clamp-1">
-                        {job.scope}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className={`self-center p-2 rounded-xl transition-all ${
-                    isSuperviseCard
-                      ? 'bg-violet-900/40 text-violet-300 group-hover:bg-violet-600 group-hover:text-white'
-                      : 'bg-slate-800 text-slate-400 group-hover:text-white group-hover:bg-sky-600'
-                  }`}>
-                    <ChevronRight className="w-5 h-5" />
-                  </div>
-                </div>
+      {activeTab === 'to_supervise' && (
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-violet-300 mb-2">
+              Awaiting your evaluation ({displayedJobs.length})
+            </h2>
+            {displayedJobs.length === 0 ? (
+              <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 text-center text-slate-400">
+                <UserCheck className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                <p className="text-sm font-bold text-slate-300">Queue clear</p>
+                <p className="text-xs text-slate-500 mt-1">No Level 1 jobs awaiting your evaluation.</p>
               </div>
-            );
-          })}
+            ) : (
+              <div className="space-y-3">{displayedJobs.map(j => renderJobCard(j, true))}</div>
+            )}
+          </div>
+          {revisionJobs.length > 0 && (
+            <div>
+              <h2 className="text-xs font-bold uppercase tracking-wider text-amber-300/90 mb-2">
+                Revision in progress ({revisionJobs.length})
+              </h2>
+              <div className="space-y-3">{revisionJobs.map(j => renderJobCard(j, true))}</div>
+            </div>
+          )}
         </div>
       )}
 
+      {activeTab !== 'to_supervise' && (
+        displayedJobs.length === 0 ? (
+          <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-8 text-center text-slate-400">
+            <Briefcase className="w-10 h-10 text-slate-600 mx-auto mb-2" />
+            <h3 className="font-bold text-sm text-slate-300">No jobs found</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              {activeTab === 'my_jobs'
+                ? 'No active jobs assigned to you right now.'
+                : 'No completed inspection reports found.'}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">{displayedJobs.map(j => renderJobCard(j, false))}</div>
+        )
+      )}
     </div>
   );
 };

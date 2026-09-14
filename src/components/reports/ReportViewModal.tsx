@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { X, Download, Mail, MessageSquare, CheckCircle, RefreshCw, FileText, AlertTriangle } from 'lucide-react';
-import { Job, Customer, Inspector, Equipment, CompanySettings } from '../../types';
+import { X, Download, Mail, MessageSquare, CheckCircle, RefreshCw, FileText, AlertTriangle, Package, Send } from 'lucide-react';
+import { Job, Customer, Inspector, Equipment, CompanySettings, UserRole } from '../../types';
 import { generateNDTPdfReport } from '../../utils/pdfGenerator';
 import { isL3Certified } from '../../utils/validation';
+import { isReportDeliveryAllowed, getReportFinalLabel } from '../../utils/reportDelivery';
+import { exportAuditPack } from '../../utils/auditPack';
+import { StorageService } from '../../services/storage';
+import { formatDateTime } from '../../utils/formatters';
 
 interface ReportViewModalProps {
   isOpen: boolean;
@@ -13,6 +17,8 @@ interface ReportViewModalProps {
   supervisor?: Inspector;
   equipmentList?: Equipment[];
   settings: CompanySettings;
+  userRole?: UserRole;
+  onJobUpdated?: (job: Job) => void;
 }
 
 export const ReportViewModal: React.FC<ReportViewModalProps> = ({
@@ -23,16 +29,34 @@ export const ReportViewModal: React.FC<ReportViewModalProps> = ({
   inspector,
   supervisor,
   equipmentList = [],
-  settings
+  settings,
+  userRole = 'admin',
+  onJobUpdated
 }) => {
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const certified = isL3Certified(job);
+  const [localJob, setLocalJob] = useState(job);
+  const certified = isL3Certified(localJob);
+  const deliveryAllowed = isReportDeliveryAllowed(localJob);
+  const finalLabel = getReportFinalLabel(localJob);
+  const canAdminWaiver = userRole === 'admin';
+  const canExportPack = localJob.status === 'Completed' && (userRole === 'admin' || userRole === 'l3_verifier' || userRole === 'technician');
+  const canMarkDelivered = (userRole === 'admin' || userRole === 'l3_verifier') && deliveryAllowed;
+
+  useEffect(() => {
+    setLocalJob(job);
+  }, [job]);
+
+  const persist = (next: Job) => {
+    StorageService.updateJob(next);
+    setLocalJob(next);
+    onJobUpdated?.(next);
+  };
 
   const buildPdf = async () => {
     setIsGenerating(true);
     try {
-      const doc = await generateNDTPdfReport(job, customer, inspector, equipmentList, settings, supervisor);
+      const doc = await generateNDTPdfReport(localJob, customer, inspector, equipmentList, settings, supervisor);
       const blob = doc.output('blob');
       if (pdfBlobUrl) {
         URL.revokeObjectURL(pdfBlobUrl);
@@ -55,14 +79,14 @@ export const ReportViewModal: React.FC<ReportViewModalProps> = ({
         URL.revokeObjectURL(pdfBlobUrl);
       }
     };
-  }, [isOpen, job.id, job.l3ReviewStatus]);
+  }, [isOpen, localJob.id, localJob.l3ReviewStatus, localJob.finalWithoutL3, localJob.delivery?.deliveredAt]);
 
   if (!isOpen) return null;
 
   const handleDownload = async () => {
-    const doc = await generateNDTPdfReport(job, customer, inspector, equipmentList, settings, supervisor);
+    const doc = await generateNDTPdfReport(localJob, customer, inspector, equipmentList, settings, supervisor);
     const label = certified ? 'Inspection_Certificate' : 'Draft_Report_Pending_L3';
-    const filename = `${job.reportNumber || job.jobNumber}_${label}.pdf`;
+    const filename = `${localJob.reportNumber || localJob.jobNumber}_${label}.pdf`;
     doc.save(filename);
   };
 
@@ -71,10 +95,10 @@ export const ReportViewModal: React.FC<ReportViewModalProps> = ({
       alert('Share as certificate is blocked until Level 3 approves. You can still download the draft report.');
       return;
     }
-    const site = customer?.sites.find(s => s.id === job.siteId);
-    const subject = encodeURIComponent(`NDT Inspection Certificate: ${job.reportNumber || job.jobNumber} - ${job.method} (${job.overallResult})`);
+    const site = customer?.sites.find(s => s.id === localJob.siteId);
+    const subject = encodeURIComponent(`NDT Inspection Certificate: ${localJob.reportNumber || localJob.jobNumber} - ${localJob.method} (${localJob.overallResult})`);
     const body = encodeURIComponent(
-      `Dear ${customer?.contactPerson || 'Client'},\n\nPlease find the inspection details for Job #${job.jobNumber} (${job.scope}) completed on ${job.inspectionDate}.\n\nOverall Result: ${job.overallResult}\nCustomer: ${customer?.companyName}\nSite: ${site?.name || 'On Site'}\nInspector: ${inspector?.fullName} (${inspector?.certNumber})\n\nOfficial PDF certificate attached / generated via Apex NDT Field Inspect.\n\nRegards,\n${settings.companyName}\n${settings.phone}`
+      `Dear ${customer?.contactPerson || 'Client'},\n\nPlease find the inspection details for Job #${localJob.jobNumber} (${localJob.scope}) completed on ${localJob.inspectionDate}.\n\nOverall Result: ${localJob.overallResult}\nCustomer: ${customer?.companyName}\nSite: ${site?.name || 'On Site'}\nInspector: ${inspector?.fullName} (${inspector?.certNumber})\n\nOfficial PDF certificate attached / generated via MysticNDT.\n\nRegards,\n${settings.companyName}\n${settings.phone}`
     );
     window.location.href = `mailto:${customer?.email || ''}?subject=${subject}&body=${body}`;
   };
@@ -84,11 +108,89 @@ export const ReportViewModal: React.FC<ReportViewModalProps> = ({
       alert('Share as certificate is blocked until Level 3 approves. You can still download the draft report.');
       return;
     }
-    const site = customer?.sites.find(s => s.id === job.siteId);
+    const site = customer?.sites.find(s => s.id === localJob.siteId);
     const text = encodeURIComponent(
-      `*NDT Inspection Certificate: ${job.reportNumber || job.jobNumber}*\nClient: ${customer?.companyName}\nSite: ${site?.name || 'On Site'}\nMethod: ${job.method}\nOverall Result: *${job.overallResult}*\nInspector: ${inspector?.fullName}\nDate: ${job.inspectionDate}\n\nGenerated by ${settings.companyName}`
+      `*NDT Inspection Certificate: ${localJob.reportNumber || localJob.jobNumber}*\nClient: ${customer?.companyName}\nSite: ${site?.name || 'On Site'}\nMethod: ${localJob.method}\nOverall Result: *${localJob.overallResult}*\nInspector: ${inspector?.fullName}\nDate: ${localJob.inspectionDate}\n\nGenerated by ${settings.companyName}`
     );
     window.open(`https://wa.me/?text=${text}`, '_blank');
+  };
+
+  const handleFinalWithoutL3 = () => {
+    if (!canAdminWaiver) return;
+    const reason = window.prompt('Final without L3 — mandatory reason:', '');
+    if (!reason?.trim()) {
+      alert('Reason is required.');
+      return;
+    }
+    persist({
+      ...localJob,
+      finalWithoutL3: true,
+      finalWithoutL3Reason: reason.trim(),
+      auditTrail: [
+        ...(localJob.auditTrail || []),
+        {
+          id: 'aud-final-' + Date.now(),
+          timestamp: new Date().toISOString(),
+          actorName: 'Admin',
+          actorRole: 'Admin',
+          action: 'FINAL_WITHOUT_L3',
+          details: `Admin marked Final without L3. Reason: ${reason.trim()}`
+        }
+      ],
+      updatedAt: new Date().toISOString()
+    });
+  };
+
+  const handleMarkDelivered = () => {
+    if (!canMarkDelivered) {
+      alert('Delivery requires L3 approval or Admin Final-without-L3 with reason.');
+      return;
+    }
+    const recipient = window.prompt('Recipient name / email:', customer?.email || customer?.contactPerson || '');
+    if (!recipient?.trim()) return;
+    const channelRaw = window.prompt('Channel: Email mock | Handed over | Other', 'Email mock') || 'Other';
+    const channel: 'Email mock' | 'Handed over' | 'Other' =
+      channelRaw === 'Email mock' || channelRaw === 'Handed over' || channelRaw === 'Other'
+        ? channelRaw
+        : 'Other';
+    persist({
+      ...localJob,
+      delivery: {
+        recipient: recipient.trim(),
+        channel,
+        deliveredAt: new Date().toISOString(),
+        recordedBy: userRole === 'l3_verifier' ? (localJob.l3VerifierName || 'L3 Verifier') : 'Admin'
+      },
+      auditTrail: [
+        ...(localJob.auditTrail || []),
+        {
+          id: 'aud-del-' + Date.now(),
+          timestamp: new Date().toISOString(),
+          actorName: userRole === 'l3_verifier' ? 'L3 Verifier' : 'Admin',
+          actorRole: userRole === 'l3_verifier' ? 'Level 3 Verifier' : 'Admin',
+          action: 'MARK_DELIVERED',
+          details: `Marked delivered to ${recipient.trim()} via ${channel}.`
+        }
+      ],
+      updatedAt: new Date().toISOString()
+    });
+  };
+
+  const handleExportPack = async () => {
+    if (localJob.status !== 'Completed') {
+      alert('Audit pack is available after field completion.');
+      return;
+    }
+    const next = await exportAuditPack({
+      job: localJob,
+      customer,
+      inspector,
+      supervisor,
+      equipmentList,
+      settings,
+      actorName: userRole === 'l3_verifier' ? 'L3 Verifier' : userRole === 'technician' ? (inspector?.fullName || 'Supervisor') : 'Admin'
+    });
+    persist(next);
   };
 
   return (
@@ -101,7 +203,7 @@ export const ReportViewModal: React.FC<ReportViewModalProps> = ({
               <FileText className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-extrabold text-base text-white">
                   {certified ? 'Inspection Report Certificate' : 'Draft Report — Pending L3'}
                 </h3>
@@ -112,18 +214,27 @@ export const ReportViewModal: React.FC<ReportViewModalProps> = ({
                 }`}>
                   {certified ? 'L3 CERTIFIED' : 'DRAFT'}
                 </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-600">
+                  {finalLabel}
+                </span>
+                {localJob.delivery && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                    Delivered
+                  </span>
+                )}
                 <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                  job.overallResult === 'PASS'
+                  localJob.overallResult === 'PASS'
                     ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : job.overallResult === 'FAIL'
+                    : localJob.overallResult === 'FAIL'
                     ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                     : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                 }`}>
-                  {job.overallResult}
+                  {localJob.overallResult}
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                {job.reportNumber || 'REP-PREVIEW'} • {job.jobNumber} • {customer?.companyName}
+                {localJob.reportNumber || 'REP-PREVIEW'} • {localJob.jobNumber} • {customer?.companyName}
+                {localJob.delivery ? ` · Sent ${formatDateTime(localJob.delivery.deliveredAt)}` : ''}
               </p>
             </div>
           </div>
@@ -149,7 +260,7 @@ export const ReportViewModal: React.FC<ReportViewModalProps> = ({
         {!certified && (
           <div className="px-5 py-2 bg-amber-500/10 border-b border-amber-500/30 text-xs text-amber-200 flex items-center gap-2">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            Draft only — share-as-certificate is blocked until Level 3 approval. Download is allowed for demo review.
+            Draft watermark remains until L3 approval. Admin Final-without-L3 opens delivery only — it does not claim L3 technical approval on the certificate face.
           </div>
         )}
 
@@ -187,7 +298,39 @@ export const ReportViewModal: React.FC<ReportViewModalProps> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 flex-wrap justify-end">
+            {canAdminWaiver && !certified && !localJob.finalWithoutL3 && localJob.status === 'Completed' && (
+              <button
+                type="button"
+                onClick={handleFinalWithoutL3}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs border border-amber-500/40 text-amber-300 bg-amber-500/10 hover:bg-amber-500/20"
+              >
+                Final without L3
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleMarkDelivered}
+              disabled={!canMarkDelivered}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs border active:scale-95 transition-all ${
+                canMarkDelivered
+                  ? 'bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border-sky-500/40'
+                  : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed opacity-60'
+              }`}
+            >
+              <Send className="w-3.5 h-3.5" />
+              Mark delivered
+            </button>
+            {canExportPack && (
+              <button
+                type="button"
+                onClick={handleExportPack}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs border border-violet-500/40 text-violet-300 bg-violet-500/10 hover:bg-violet-500/20"
+              >
+                <Package className="w-3.5 h-3.5" />
+                Export audit pack
+              </button>
+            )}
             <button
               type="button"
               onClick={handleWhatsAppShare}

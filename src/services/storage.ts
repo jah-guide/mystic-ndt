@@ -6,14 +6,15 @@ import {
   initialCompanySettings, initialCustomers, initialInspectors,
   initialEquipment, initialJobs, initialProcedures, initialIncidents
 } from './seedData';
+import { ensureProcedureSnapshotOnJob } from '../utils/procedureSnapshot';
 
 const STORAGE_KEYS = {
   SETTINGS: 'ndt_company_settings_v2',
-  CUSTOMERS: 'ndt_customers_v2',
-  INSPECTORS: 'ndt_inspectors_v2',
-  EQUIPMENT: 'ndt_equipment_v2',
-  JOBS: 'ndt_jobs_v5',
-  PROCEDURES: 'ndt_procedures_v1',
+  CUSTOMERS: 'ndt_customers_v3',
+  INSPECTORS: 'ndt_inspectors_v5',
+  EQUIPMENT: 'ndt_equipment_v4',
+  JOBS: 'ndt_jobs_v8',
+  PROCEDURES: 'ndt_procedures_v2',
   INCIDENTS: 'ndt_incidents_v1',
   CURRENT_USER_ROLE: 'ndt_user_role_v1',
   CURRENT_INSPECTOR_ID: 'ndt_current_inspector_id_v1'
@@ -173,11 +174,18 @@ export const StorageService = {
     if (!raw) { this.saveJobs(initialJobs); return initialJobs; }
     try {
       const jobs: Job[] = JSON.parse(raw);
-      // Migrate legacy single equipmentId → equipmentIds[]
-      return jobs.map(j => ({
-        ...j,
-        equipmentIds: j.equipmentIds ?? ((j as any).equipmentId ? [(j as any).equipmentId] : [])
-      }));
+      const procedures = this.getProcedures();
+      // Migrate legacy single equipmentId → equipmentIds[]; hydrate missing WEP snapshots
+      return jobs.map(j => {
+        let job: Job = {
+          ...j,
+          equipmentIds: j.equipmentIds ?? ((j as any).equipmentId ? [(j as any).equipmentId] : [])
+        };
+        if (!job.procedureSnapshot && job.procedureId && job.status !== 'Draft') {
+          job = ensureProcedureSnapshotOnJob(job, procedures, 'assign');
+        }
+        return job;
+      });
     } catch { return initialJobs; }
   },
   saveJobs(jobs: Job[]): void {

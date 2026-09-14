@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { 
   ArrowLeft, Plus, CheckCircle2, XCircle, MinusCircle, Camera, 
-  AlertTriangle, ShieldCheck, FileText, Lock, Edit3, Trash2, Calendar, MapPin, 
-  Building, Wrench, FileCheck, Share2, Award, History, Clock
+  AlertTriangle, ShieldCheck, FileText, Lock, Trash2, Calendar, MapPin, 
+  Building, Wrench, FileCheck, Share2, Award, History, Clock, X
 } from 'lucide-react';
 import { Job, Customer, Inspector, Equipment, InspectionItem, CompanySettings, AuditEntry, UserRole, JobViewerRole } from '../../types';
 import { Badge } from '../common/Badge';
 import { formatDate, formatDateTime } from '../../utils/formatters';
-import { checkExpiry, calculateOverallResult, isItemEvaluated, canEditFindings, canEvaluateItems, canRejectToL1, canSubmitAsL1, isAssignedSupervisor, snapshotFindingsRevision, resetItemEvaluations, validateSupervisorReject, clearL3CertificationFields, clearFieldCompletionFields, isL3Certified, canReopenJob } from '../../utils/validation';
+import { checkExpiry, calculateOverallResult, isItemEvaluated, canEditFindings, canEvaluateItems, canRejectToL1, canSubmitAsL1, isAssignedSupervisor, snapshotFindingsRevision, resetItemEvaluations, validateSupervisorReject, clearL3CertificationFields, clearFieldCompletionFields, isL3Certified, canReopenJob, compareJobTempToProcedure, isLevel1ForMethod, getMethodCertificate } from '../../utils/validation';
+import { ensureProcedureSnapshotOnJob, getJobProcedureView, replaceProcedureSnapshot } from '../../utils/procedureSnapshot';
 import { InspectionItemModal } from './InspectionItemModal';
 import { CompleteInspectionModal, CompleteModalMode } from './CompleteInspectionModal';
 import { ReportViewModal } from '../reports/ReportViewModal';
@@ -37,7 +38,9 @@ function resolveViewerRole(
   if (userRole === 'admin') return 'admin';
   if (userRole === 'l3_verifier') return 'l3';
   if (viewerInspectorId && job.supervisorId && viewerInspectorId === job.supervisorId) return 'supervisor';
-  if (inspector?.level === 'Level 1' && viewerInspectorId === job.inspectorId) return 'lead_l1';
+  if (inspector && viewerInspectorId === job.inspectorId && isLevel1ForMethod(inspector, job.method)) {
+    return 'lead_l1';
+  }
   return 'lead_l2_plus';
 }
 
@@ -55,6 +58,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
 }) => {
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InspectionItem | undefined>(undefined);
+  const [lightboxPhoto, setLightboxPhoto] = useState<{ dataUrl: string; caption?: string } | null>(null);
   const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isL3ReviewModalOpen, setIsL3ReviewModalOpen] = useState(false);
@@ -70,7 +74,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
   const isAwaitingSupervisor = job.status === 'Awaiting Supervisor';
   const isRevisionRequired = job.status === 'Revision Required';
   const isL3Approved = job.l3ReviewStatus === 'APPROVED';
-  const isL1LeadJob = inspector?.level === 'Level 1';
+  const isL1LeadJob = isLevel1ForMethod(inspector, job.method);
   const viewerRole = resolveViewerRole(userRole, job, inspector, viewerInspectorId);
   const assignedSup = isAssignedSupervisor(job, viewerInspectorId);
 
@@ -89,6 +93,8 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
   const reportIsCertified = isL3Certified(job);
 
   const canOpenItemModal = allowEditFindings || allowEvaluate;
+  const canViewItemDetail = canOpenItemModal || userRole === 'l3_verifier' || userRole === 'admin';
+  const itemModalViewOnly = canViewItemDetail && !canOpenItemModal;
   const canAddItems = allowEditFindings;
 
   const completeMode: CompleteModalMode = allowSubmitL1
@@ -98,9 +104,35 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
     : 'lead_complete';
 
   const showPrimaryAction = allowSubmitL1 || allowCompleteSupervised || allowCompleteIndependent;
+  const allProcedures = StorageService.getProcedures();
+  const { snapshot: procedureSnapshot, live: liveProcedure, displayRevision } = getJobProcedureView(job, allProcedures);
+  const linkedProcedure = procedureSnapshot
+    ? ({
+        ...liveProcedure,
+        id: procedureSnapshot.procedureId,
+        procedureNumber: procedureSnapshot.procedureNumber,
+        title: procedureSnapshot.title,
+        method: procedureSnapshot.method,
+        revisionNumber: procedureSnapshot.revisionNumber,
+        standardRef: procedureSnapshot.standardRef || liveProcedure?.standardRef || '',
+        acceptanceCriteria: procedureSnapshot.acceptanceCriteria,
+        temperatureRanges: procedureSnapshot.temperatureRanges,
+        temperature: procedureSnapshot.temperature,
+        equipmentSlots: procedureSnapshot.equipmentSlots,
+        equipmentRequired: liveProcedure?.equipmentRequired || [],
+        surface: liveProcedure?.surface || '',
+        status: liveProcedure?.status || 'Active',
+        authorId: liveProcedure?.authorId || '',
+        createdAt: liveProcedure?.createdAt || '',
+        updatedAt: liveProcedure?.updatedAt || ''
+      } as NonNullable<typeof liveProcedure>)
+    : liveProcedure;
+  const jobTempCompare = compareJobTempToProcedure(job, linkedProcedure);
 
   // Expiry checks — flag if any linked apparatus is due/expired
-  const certCheck = checkExpiry(inspector?.certExpiryDate);
+  const certCheck = inspector
+    ? checkExpiry(getMethodCertificate(inspector, job.method)?.expiryDate || inspector.certExpiryDate)
+    : checkExpiry(undefined);
   const worstEquip = equipmentList.reduce<{ status: ReturnType<typeof checkExpiry>['status']; check: ReturnType<typeof checkExpiry>; name?: string } | null>((acc, eq) => {
     const check = checkExpiry(eq.calibrationExpiryDate);
     if (!acc) return { status: check.status, check, name: eq.name };
@@ -177,13 +209,16 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
       details: `${exists ? 'Updated' : 'Added'} inspection item ${item.itemNumber} (${item.result}${item.reading ? ` - ${item.reading} ${item.unit || ''}` : ''}).`
     };
 
-    const updatedJob: Job = {
+    let updatedJob: Job = {
       ...job,
       items: updatedItems,
       overallResult: calculatedResult,
       status: job.status === 'Draft' || job.status === 'Assigned' ? 'In Progress' : job.status,
       auditTrail: [...(job.auditTrail || []), auditEntry]
     };
+    if ((job.status === 'Draft' || job.status === 'Assigned') && updatedJob.status === 'In Progress') {
+      updatedJob = ensureProcedureSnapshotOnJob(updatedJob, StorageService.getProcedures(), 'start');
+    }
 
     StorageService.updateJob(updatedJob);
     onJobUpdated(updatedJob);
@@ -226,6 +261,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
     signatureDataUrl?: string;
     supervisorSignatureDataUrl?: string;
     comments: string;
+    temperatureOutOfRangeReason?: string;
   }) => {
     if (completeMode === 'l1_submit') {
       const priorRevision = job.findingsRevision || 1;
@@ -274,6 +310,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
         items: resetItemEvaluations(job.items),
         signatureDataUrl: payload.signatureDataUrl,
         inspectorComments: payload.comments,
+        temperatureOutOfRangeReason: payload.temperatureOutOfRangeReason,
         supervisorRejectionReason: undefined,
         supervisorRejectedAt: undefined,
         supervisorRejectedByName: undefined,
@@ -540,6 +577,19 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
         </div>
       )}
 
+      {jobTempCompare.status === 'outside' && (
+        <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 text-xs text-amber-200 space-y-1">
+          <div className="flex items-center gap-2 font-bold text-amber-100">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            Job temperature outside linked WEP range
+          </div>
+          <p className="pl-6">{jobTempCompare.reasons[0]}</p>
+          {job.temperatureOutOfRangeReason && (
+            <p className="pl-6 text-amber-100/80">Recorded reason: {job.temperatureOutOfRangeReason}</p>
+          )}
+        </div>
+      )}
+
       {/* Clean Job Header Summary Card */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl mb-6">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b border-slate-800">
@@ -623,16 +673,57 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
           </div>
         )}
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          {job.procedureNumber || job.procedureId ? (
+        <div className="mt-3 flex flex-wrap gap-2 items-center">
+          {job.procedureNumber || job.procedureId || procedureSnapshot ? (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
               <FileCheck className="w-3.5 h-3.5" />
-              WEP {job.procedureNumber || job.procedureId}
+              WEP {procedureSnapshot?.procedureNumber || job.procedureNumber || job.procedureId}
+              {displayRevision ? ` · ${displayRevision}` : ''}
+              {procedureSnapshot ? ' · frozen' : ''}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
               No WEP linked
             </span>
+          )}
+          {(userRole === 'admin' || userRole === 'l3_verifier') && (job.procedureId || procedureSnapshot) && (
+            <button
+              type="button"
+              onClick={() => {
+                const procs = StorageService.getProcedures().filter(p => p.method === job.method && p.status === 'Active');
+                if (procs.length === 0) {
+                  alert('No active procedures for this method.');
+                  return;
+                }
+                const pick = window.prompt(
+                  `Replace frozen WEP. Enter procedure id:\n${procs.map(p => `${p.id} — ${p.procedureNumber} ${p.revisionNumber}`).join('\n')}`,
+                  procs[0].id
+                );
+                if (!pick) return;
+                const next = procs.find(p => p.id === pick) || StorageService.getProcedures().find(p => p.id === pick);
+                if (!next) {
+                  alert('Procedure not found.');
+                  return;
+                }
+                const reason = window.prompt('Reason for replacing procedure revision (required):', '');
+                if (!reason?.trim()) {
+                  alert('Reason is required.');
+                  return;
+                }
+                const replaced = replaceProcedureSnapshot(
+                  job,
+                  next,
+                  userRole === 'admin' ? 'Admin' : 'L3 Verifier',
+                  userRole === 'admin' ? 'Admin' : 'Level 3 Verifier',
+                  reason.trim()
+                );
+                StorageService.updateJob(replaced);
+                onJobUpdated(replaced);
+              }}
+              className="text-[10px] font-bold text-amber-400 hover:text-amber-300 underline"
+            >
+              Replace WEP revision
+            </button>
           )}
           {equipmentList.length > 0 ? (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-sky-500/10 text-sky-300 border border-sky-500/30">
@@ -785,18 +876,35 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
               return (
                 <div
                   key={item.id}
+                  role={canViewItemDetail ? 'button' : undefined}
+                  tabIndex={canViewItemDetail ? 0 : undefined}
+                  onClick={() => {
+                    if (!canViewItemDetail) return;
+                    setEditingItem(item);
+                    setIsItemModalOpen(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (!canViewItemDetail) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setEditingItem(item);
+                      setIsItemModalOpen(true);
+                    }
+                  }}
                   className={`bg-slate-900 border rounded-2xl p-4 transition-all shadow-md ${
+                    canViewItemDetail ? 'cursor-pointer hover:shadow-lg hover:border-sky-500/50 active:scale-[0.99]' : ''
+                  } ${
                     isFail
                       ? 'border-rose-500/40 bg-gradient-to-r from-rose-950/20 to-slate-900'
                       : isPass
-                      ? 'border-slate-800 hover:border-emerald-500/30'
+                      ? 'border-slate-800 hover:border-emerald-500/40'
                       : isPending
                       ? 'border-amber-500/30 bg-amber-950/10'
                       : 'border-slate-800'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-bold text-slate-400">#{idx + 1}</span>
                         <h4 className="font-black text-sm text-white">{item.itemNumber}</h4>
@@ -811,17 +919,31 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
                         }`}>
                           {item.result}
                         </span>
+                        {item.constraintFlags?.includes('OUTSIDE_CRITERION') && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/40">
+                            Outside band — likely Fail
+                          </span>
+                        )}
+                        {item.constraintFlags?.includes('OUTSIDE_PROC_TEMP') && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/40">
+                            Out of WEP temp
+                          </span>
+                        )}
                         {item.photos.length > 0 && (
                           <span className="flex items-center gap-1 text-[11px] font-medium text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20">
                             <Camera className="w-3 h-3" />
                             {item.photos.length}
                           </span>
                         )}
+                        {canViewItemDetail && (
+                          <span className="text-[10px] font-semibold text-slate-500 ml-auto sm:ml-0">
+                            {allowEvaluate ? 'Tap to evaluate' : itemModalViewOnly ? 'Tap to view' : 'Tap to open'}
+                          </span>
+                        )}
                       </div>
 
                       <p className="text-xs text-slate-300 mt-1 font-medium">{item.description}</p>
 
-                      {/* Readings & Criteria */}
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-400">
                         {item.reading ? (
                           <div>
@@ -845,52 +967,46 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
                         )}
                       </div>
 
-                      {/* Defect or Observation */}
                       {item.indication && (
                         <div className="mt-2 text-xs text-rose-300 bg-rose-500/10 p-2 rounded-lg border border-rose-500/20 font-medium">
                           <strong>Defect Indication:</strong> {item.indication}
                         </div>
                       )}
 
-                      {/* Photo thumbnails */}
                       {item.photos.length > 0 && (
                         <div className="flex items-center gap-2 mt-3 overflow-x-auto pb-1">
                           {item.photos.map(p => (
-                            <img
+                            <button
                               key={p.id}
-                              src={p.dataUrl}
-                              alt={p.caption || 'Thumbnail'}
-                              className="w-14 h-14 object-cover rounded-lg border border-slate-700 bg-slate-950 shrink-0"
-                            />
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setLightboxPhoto({ dataUrl: p.dataUrl, caption: p.caption || item.itemNumber });
+                              }}
+                              className="shrink-0 rounded-lg border border-slate-700 bg-slate-950 overflow-hidden hover:border-sky-400/60 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                              title="View full photo"
+                            >
+                              <img
+                                src={p.dataUrl}
+                                alt={p.caption || 'Evidential photo'}
+                                className="w-14 h-14 object-cover"
+                              />
+                            </button>
                           ))}
                         </div>
                       )}
                     </div>
 
-                    {/* Item Actions */}
-                    {canOpenItemModal && (
-                      <div className="flex items-center gap-1 shrink-0">
+                    {canAddItems && (
+                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditingItem(item);
-                            setIsItemModalOpen(true);
-                          }}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                          title={allowEvaluate ? 'Evaluate item' : 'Edit item'}
+                          onClick={() => handleDeleteItem(item.id)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                          title="Delete item"
                         >
-                          <Edit3 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
-                        {canAddItems && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteItem(item.id)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                            title="Delete item"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
                       </div>
                     )}
                   </div>
@@ -1060,6 +1176,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
 
       {/* Item Modal */}
       <InspectionItemModal
+        key={`item-modal-${editingItem?.id || 'new'}-${itemModalViewOnly ? 'view' : evaluateOnly ? 'eval' : findingsOnly ? 'findings' : 'edit'}-${isItemModalOpen ? 'open' : 'closed'}`}
         isOpen={isItemModalOpen}
         onClose={() => {
           setIsItemModalOpen(false);
@@ -1069,9 +1186,40 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
         method={job.method}
         existingItem={editingItem}
         nextItemNumberSuggestion={getNextItemSuggestion()}
-        findingsOnly={findingsOnly && !evaluateOnly}
-        evaluateOnly={evaluateOnly}
+        findingsOnly={findingsOnly && !evaluateOnly && !itemModalViewOnly}
+        evaluateOnly={evaluateOnly && !itemModalViewOnly}
+        viewOnly={itemModalViewOnly}
+        criteriaLibrary={procedureSnapshot?.acceptanceCriteria}
       />
+
+      {lightboxPhoto && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/95 backdrop-blur-sm p-4"
+          onClick={() => setLightboxPhoto(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Evidential photo"
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxPhoto(null)}
+            className="absolute top-4 right-4 p-2 rounded-xl bg-slate-800 text-white hover:bg-slate-700 border border-slate-600"
+            aria-label="Close photo"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <div className="max-w-5xl max-h-[90vh] w-full flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={lightboxPhoto.dataUrl}
+              alt={lightboxPhoto.caption || 'Evidential photo'}
+              className="max-h-[85vh] max-w-full object-contain rounded-xl border border-slate-700 shadow-2xl"
+            />
+            {lightboxPhoto.caption && (
+              <p className="text-sm text-slate-300 font-medium text-center">{lightboxPhoto.caption}</p>
+            )}
+          </div>
+        </div>
+      )}
 
       <CompleteInspectionModal
         isOpen={isCompleteModalOpen}
@@ -1180,6 +1328,8 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
         supervisor={supervisor}
         equipmentList={equipmentList}
         settings={settings}
+        userRole={userRole}
+        onJobUpdated={onJobUpdated}
       />
 
     </div>

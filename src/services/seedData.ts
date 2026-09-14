@@ -3,6 +3,12 @@ import {
   NdtProcedure, EquipmentIncident, AcceptanceCriterion
 } from '../types';
 
+import {
+  workshopCustomers,
+  workshopInspectors,
+  workshopEquipment
+} from './seedWorkshopRoster';
+
 export const initialCompanySettings: CompanySettings = {
   companyName: 'Apex NDT & Engineering Services (Pty) Ltd',
   logoUrl: '',
@@ -16,219 +22,9 @@ export const initialCompanySettings: CompanySettings = {
   reportPrefix: 'REP-2026-'
 };
 
-export const initialCustomers: Customer[] = [
-  {
-    id: 'cust-1',
-    companyName: 'ABC Engineering (Pty) Ltd',
-    contactPerson: 'Johan van der Merwe',
-    email: 'johan@abcengineering.co.za',
-    phone: '+27 82 450 9182',
-    sites: [
-      { id: 'site-1-1', name: 'Johannesburg Fabrication Workshop', address: '88 Main Reef Road, Industria, Johannesburg, 2093' },
-      { id: 'site-1-2', name: 'Secunda Gas Plant - Unit 4', address: 'Secunda Complex, Mpumalanga, 2302' }
-    ],
-    notes: 'Key fabrication contractor for heavy pressure vessels and pipe spools.',
-    createdAt: '2026-01-15T08:00:00.000Z'
-  },
-  {
-    id: 'cust-2',
-    companyName: 'Sasol Synfuels Mining & Gas',
-    contactPerson: 'Nomvula Sithole',
-    email: 'nomvula.sithole@sasol.com',
-    phone: '+27 17 610 3450',
-    sites: [
-      { id: 'site-2-1', name: 'Sasolburg Chemical Complex - Steam Line Spool', address: 'Klasie Havenga Road, Sasolburg, Free State, 1947' }
-    ],
-    notes: 'Strict HSE protocol required. Site induction valid through Dec 2026.',
-    createdAt: '2026-02-01T09:30:00.000Z'
-  },
-  {
-    id: 'cust-3',
-    companyName: 'Transnet Freight Rail Engineering',
-    contactPerson: 'David Khumalo',
-    email: 'david.khumalo@transnet.net',
-    phone: '+27 11 584 0192',
-    sites: [
-      { id: 'site-3-1', name: 'Koedoespoort Rail Mechanical Yard', address: 'Koedoespoort, Pretoria East, 0186' }
-    ],
-    notes: 'Axle and bogey visual and magnetic particle inspections.',
-    createdAt: '2026-02-10T11:00:00.000Z'
-  }
-];
-
-export const initialInspectors: Inspector[] = [
-  {
-    id: 'insp-1',
-    fullName: 'Thabo Mokoena',
-    email: 'thabo.m@apexndt.co.za',
-    phone: '+27 73 892 4410',
-    certification: 'SAQCC / ISO 9712 Level 2',
-    certNumber: 'SAQCC-NDT-8492',
-    level: 'Level 2',
-    certExpiryDate: '2027-06-30',
-    methods: ['UT', 'MT', 'PT', 'VT'],
-    notes: 'Senior NDT technician. 8+ years experience in boiler and piping inspections.'
-  },
-  {
-    id: 'insp-l3-1',
-    fullName: 'Dr. Johan Pretorius',
-    email: 'johan.p@apexndt.co.za',
-    phone: '+27 82 555 9012',
-    certification: 'ISO 9712 Level 3 / ASNT Level III',
-    certNumber: 'ISO-9712-L3-ZA-0412',
-    level: 'Level 3',
-    certExpiryDate: '2028-12-31',
-    methods: ['UT', 'MT', 'PT', 'VT'],
-    notes: 'Principal NDT Level 3 Technical Authority & Quality Reviewer.'
-  },
-  {
-    id: 'insp-2',
-    fullName: 'Sipho Zulu',
-    email: 'sipho.zulu@apexndt.co.za',
-    phone: '+27 84 321 7789',
-    certification: 'SAQCC NDT Level 2',
-    certNumber: 'SAQCC-NDT-9104',
-    level: 'Level 2',
-    certExpiryDate: '2026-09-28',
-    methods: ['MT', 'PT', 'VT'],
-    notes: 'Surface methods specialist.'
-  },
-  {
-    id: 'insp-3',
-    fullName: 'Pieter Botha',
-    email: 'pieter.b@apexndt.co.za',
-    phone: '+27 82 990 1234',
-    certification: 'ISO 9712 UT Level 2',
-    certNumber: 'ISO-9712-ZA-3841',
-    level: 'Level 2',
-    certExpiryDate: '2026-08-15', // Expired demo
-    methods: ['UT'],
-    notes: 'Ultrasonic flaw detection and thickness sizing specialist.'
-  },
-  {
-    id: 'insp-4',
-    fullName: 'Lesego Nkosi',
-    email: 'lesego.n@apexndt.co.za',
-    phone: '+27 76 541 8823',
-    certification: 'SAQCC NDT Level 1',
-    certNumber: 'SAQCC-NDT-L1-1122',
-    level: 'Level 1',
-    certExpiryDate: '2027-03-31',
-    methods: ['UT', 'MT'],
-    defaultSupervisorId: 'insp-1',
-    notes: 'Junior technician. Must be supervised by Level 2 or Level 3 at all times per ISO 9712 §7.1.'
-  }
-];
-
-export const initialEquipment: Equipment[] = [
-  {
-    id: 'eq-1',
-    name: 'Olympus 27MG Ultrasonic Gauge',
-    type: 'Ultrasonic Thickness Gauge',
-    serialNumber: 'SN-OLY-27MG-9482',
-    category: 'Ultrasonic',
-    checkoutStatus: 'Available',
-    calibrationDate: '2026-03-01',
-    calibrationExpiryDate: '2027-03-01',
-    calibrationHistory: [
-      {
-        id: 'cal-eq1-1',
-        calDate: '2026-03-01',
-        calExpiryDate: '2027-03-01',
-        certificateNumber: 'CAL-SANAS-2026-0183',
-        laboratory: 'Fluke Calibration Lab (SANAS Accredited)',
-        referenceStandard: '5-step carbon steel step wedge (2.5mm – 20mm)',
-        performedBy: 'K. Naidoo (SANAS Metrologist)',
-        result: 'PASS',
-        notes: 'Zero-drift verified across all ranges. Certificate valid 12 months.',
-        timestamp: '2026-03-01T09:00:00.000Z'
-      }
-    ],
-    traceabilityLog: [
-      {
-        id: 'trace-eq1-init',
-        timestamp: '2026-03-01T09:00:00.000Z',
-        action: 'Returned',
-        notes: 'Initial registration. Equipment available for deployment.'
-      }
-    ],
-    notes: 'Calibrated with 5-step carbon steel calibration block (2.5mm - 20mm).'
-  },
-  {
-    id: 'eq-2',
-    name: 'Parker B300 Contour Magnetic Yoke',
-    type: 'Electromagnetic AC/DC Yoke',
-    serialNumber: 'SN-PKR-B300-4821',
-    category: 'Magnetic Particle',
-    checkoutStatus: 'On Job',
-    currentJobId: 'job-2',
-    currentJobNumber: 'NDT-2026-0002',
-    checkedOutTo: 'Thabo Mokoena',
-    checkedOutAt: '2026-09-11T07:30:00.000Z',
-    calibrationDate: '2026-04-10',
-    calibrationExpiryDate: '2026-09-25',
-    calibrationHistory: [
-      {
-        id: 'cal-eq2-1',
-        calDate: '2026-04-10',
-        calExpiryDate: '2026-09-25',
-        certificateNumber: 'CAL-SANAS-2026-0294',
-        laboratory: 'SANAS Accredited Metrology Lab',
-        referenceStandard: '10lb (4.5kg) AC lift test block & pie gauge',
-        performedBy: 'K. Naidoo (SANAS Metrologist)',
-        result: 'PASS',
-        notes: 'Lift tested to 4.5kg (10 lbs) AC pull test.',
-        timestamp: '2026-04-10T10:00:00.000Z'
-      }
-    ],
-    traceabilityLog: [
-      {
-        id: 'trace-eq2-checkout',
-        timestamp: '2026-09-11T07:30:00.000Z',
-        action: 'Checked Out',
-        jobId: 'job-2',
-        jobNumber: 'NDT-2026-0002',
-        inspectorName: 'Thabo Mokoena',
-        notes: 'Deployed on MT structural lug inspection'
-      }
-    ],
-    notes: 'Lift tested to 4.5kg (10 lbs) AC pull test.'
-  },
-  {
-    id: 'eq-3',
-    name: 'Magnaflux Spotcheck Penetrant Kit & Lux Meter',
-    type: 'Dye Penetrant System & Light Meter',
-    serialNumber: 'SN-MAG-SKL-0192',
-    category: 'Liquid Penetrant',
-    checkoutStatus: 'Incident Reported',
-    calibrationDate: '2025-08-01',
-    calibrationExpiryDate: '2026-08-01',
-    calibrationHistory: [
-      {
-        id: 'cal-eq3-1',
-        calDate: '2025-08-01',
-        calExpiryDate: '2026-08-01',
-        certificateNumber: 'CAL-SANAS-2025-0841',
-        laboratory: 'SANAS Accredited Metrology Lab',
-        referenceStandard: 'Calibrated Lux meter & digital vernier gauge',
-        performedBy: 'K. Naidoo (SANAS Metrologist)',
-        result: 'PASS',
-        notes: 'White light meter calibrated.',
-        timestamp: '2025-08-01T09:00:00.000Z'
-      }
-    ],
-    traceabilityLog: [
-      {
-        id: 'trace-eq3-inc',
-        timestamp: '2026-09-12T08:15:00.000Z',
-        action: 'Incident Reported',
-        inspectorName: 'Sipho Zulu',
-        notes: 'Broken: Lux meter screen cracked on site during transport.'
-      }
-    ],
-    notes: 'Requires recalibration of white light meter. Currently locked — incident open.'
-  }
-];
+export const initialCustomers: Customer[] = workshopCustomers;
+export const initialInspectors: Inspector[] = workshopInspectors;
+export const initialEquipment: Equipment[] = workshopEquipment;
 
 const sampleWeldPhoto1 = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="400" height="300" fill="%231e293b"/><path d="M50 150 L350 150" stroke="%23f59e0b" stroke-width="12" stroke-linecap="round"/><circle cx="200" cy="150" r="30" fill="none" stroke="%2338bdf8" stroke-width="4"/><text x="200" y="240" font-family="sans-serif" font-size="16" fill="%2394a3b8" text-anchor="middle">Weld 001 - UT Scan Zone</text></svg>';
 const sampleWeldPhoto2 = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="400" height="300" fill="%231e293b"/><path d="M50 150 L350 150" stroke="%23ef4444" stroke-width="12" stroke-linecap="round"/><path d="M190 140 L210 160 M210 140 L190 160" stroke="%23ef4444" stroke-width="5"/><circle cx="200" cy="150" r="25" fill="none" stroke="%23ef4444" stroke-width="3" stroke-dasharray="4,4"/><text x="200" y="240" font-family="sans-serif" font-size="16" fill="%23f87171" text-anchor="middle">Weld 002 - Defect: Lack of Fusion</text></svg>';
@@ -240,6 +36,7 @@ export const initialJobs: Job[] = [
     customerId: 'cust-1',
     siteId: 'site-1-1',
     inspectionDate: '2026-09-10',
+    dueDate: '2026-09-12',
     inspectorId: 'insp-1',
     method: 'UT',
     scope: 'Ultrasonic thickness survey and weld integrity check on 6-inch high-pressure steam manifold spools.',
@@ -317,11 +114,52 @@ export const initialJobs: Job[] = [
     updatedAt: '2026-09-10T16:15:00.000Z'
   },
   {
+    id: 'job-1b',
+    jobNumber: 'NDT-2026-0001B',
+    customerId: 'cust-3',
+    siteId: 'site-3-1',
+    inspectionDate: '2026-08-20',
+    dueDate: '2026-08-22',
+    inspectorId: 'insp-1',
+    method: 'VT',
+    scope: 'Visual inspection of bogey frame welds — late completion demo for on-time KPI.',
+    standardSpec: 'ISO 17637 / AWS D1.1 visual criteria',
+    equipmentIds: ['eq-22'],
+    generalNotes: 'Demo: completed after due date for inspector on-time chart.',
+    surfaceCondition: 'As-welded',
+    temperature: '18°C',
+    status: 'Completed',
+    overallResult: 'PASS',
+    reportNumber: 'REP-2026-0001B',
+    completedAt: '2026-08-25T11:00:00.000Z',
+    inspectorComments: 'No relevant visual indications. Certificate issued after delayed site access.',
+    signatureDataUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="260" height="80" viewBox="0 0 260 80"><path d="M 20,40 Q 50,10 80,45 T 140,35" fill="none" stroke="%230284c7" stroke-width="3"/></svg>',
+    auditTrail: [
+      { id: 'aud-1b-1', timestamp: '2026-08-18T08:00:00.000Z', actorName: 'System Admin', actorRole: 'Admin', action: 'JOB_CREATED', details: 'VT job created for Transnet yard.' },
+      { id: 'aud-1b-2', timestamp: '2026-08-25T11:00:00.000Z', actorName: 'Thabo Mokoena', actorRole: 'Inspector', action: 'INSPECTOR_SIGNED', details: 'Completed after due date (site access delay).' }
+    ],
+    items: [
+      {
+        id: 'item-1b-1',
+        itemNumber: 'Frame Weld A',
+        description: 'Bogey side-frame fillet weld',
+        acceptanceCriteria: 'No cracks, undercut ≤ 1mm',
+        result: 'Pass',
+        notes: 'No undercut beyond acceptance.',
+        photos: [],
+        updatedAt: '2026-08-25T10:30:00.000Z'
+      }
+    ],
+    createdAt: '2026-08-18T08:00:00.000Z',
+    updatedAt: '2026-08-25T11:00:00.000Z'
+  },
+  {
     id: 'job-2',
     jobNumber: 'NDT-2026-0002',
     customerId: 'cust-1',
     siteId: 'site-1-1',
     inspectionDate: '2026-09-11',
+    dueDate: '2026-09-15',
     inspectorId: 'insp-1',
     method: 'MT',
     scope: 'Magnetic Particle inspection of structural lifting lugs & pad eyes on pressure vessel skid.',
@@ -378,6 +216,7 @@ export const initialJobs: Job[] = [
     customerId: 'cust-2',
     siteId: 'site-2-1',
     inspectionDate: '2026-09-12',
+    dueDate: '2026-09-18',
     inspectorId: 'insp-4',           // Level 1 technician (UT/MT)
     supervisorId: 'insp-1',          // Thabo Mokoena L2 — valid UT supervisor
     method: 'UT',
@@ -387,6 +226,7 @@ export const initialJobs: Job[] = [
     generalNotes: 'Level 1 records readings only. Supervising Level 2 evaluates acceptance.',
     surfaceCondition: 'Wire brushed & solvent degreased',
     temperature: '21°C',
+    temperatureC: 21,
     status: 'Assigned',
     overallResult: 'PENDING',
     procedureId: 'proc-1',
@@ -405,6 +245,7 @@ export const initialJobs: Job[] = [
     customerId: 'cust-1',
     siteId: 'site-1-1',
     inspectionDate: '2026-09-12',
+    dueDate: '2026-09-13',
     inspectorId: 'insp-4',
     supervisorId: 'insp-1',
     method: 'UT',
@@ -416,6 +257,7 @@ export const initialJobs: Job[] = [
     generalNotes: 'Demo job: Lesego submitted findings; Thabo must evaluate Pass/Fail on each item.',
     surfaceCondition: 'Wire brushed',
     temperature: '22°C',
+    temperatureC: 22,
     status: 'Awaiting Supervisor',
     overallResult: 'PENDING',
     findingsRevision: 1,
@@ -470,6 +312,7 @@ export const initialJobs: Job[] = [
     customerId: 'cust-2',
     siteId: 'site-2-1',
     inspectionDate: '2026-09-12',
+    dueDate: '2026-09-16',
     inspectorId: 'insp-4',
     supervisorId: 'insp-1',
     method: 'MT',
@@ -481,6 +324,7 @@ export const initialJobs: Job[] = [
     generalNotes: 'Demo reject path: Thabo rejected rev 1; Lesego must revise.',
     surfaceCondition: 'Contrast paint applied',
     temperature: '23°C',
+    temperatureC: 23,
     status: 'Revision Required',
     overallResult: 'PENDING',
     findingsRevision: 1,
@@ -555,7 +399,10 @@ export const initialAcceptanceCriteria: AcceptanceCriterion[] = [
     description: 'Minimum nominal wall thickness ≥ 5.80mm for Schedule 40 carbon steel piping DN150. No planar or laminar indications permitted.',
     createdByL3Id: 'insp-l3-1',
     createdAt: '2026-01-10T09:00:00.000Z',
-    isActive: true
+    isActive: true,
+    ruleType: 'NumericMin',
+    valueMin: 5.8,
+    valueUnit: 'mm'
   },
   {
     id: 'crit-2',
@@ -565,7 +412,10 @@ export const initialAcceptanceCriteria: AcceptanceCriterion[] = [
     description: 'No cracks, linear indications, or rounded indications > 1.5mm. No groups of more than 4 aligned pores in any 150mm length of weld.',
     createdByL3Id: 'insp-l3-1',
     createdAt: '2026-01-10T09:30:00.000Z',
-    isActive: true
+    isActive: true,
+    ruleType: 'NumericMax',
+    valueMax: 1.5,
+    valueUnit: 'mm'
   },
   {
     id: 'crit-3',
@@ -575,7 +425,10 @@ export const initialAcceptanceCriteria: AcceptanceCriterion[] = [
     description: 'No relevant linear indications. Rounded indications > 4.8mm not permitted. Adjacent relevant indications < 1.6mm edge-to-edge separation treated as single indication.',
     createdByL3Id: 'insp-l3-1',
     createdAt: '2026-01-10T10:00:00.000Z',
-    isActive: true
+    isActive: true,
+    ruleType: 'NumericMax',
+    valueMax: 4.8,
+    valueUnit: 'mm'
   },
   {
     id: 'crit-4',
@@ -585,7 +438,10 @@ export const initialAcceptanceCriteria: AcceptanceCriterion[] = [
     description: 'No cracks, incomplete fusion, or incomplete penetration. Undercut ≤ 0.8mm depth for single pass welds. Cap reinforcement ≤ 3mm above base metal surface.',
     createdByL3Id: 'insp-l3-1',
     createdAt: '2026-01-10T10:30:00.000Z',
-    isActive: true
+    isActive: true,
+    ruleType: 'NumericMax',
+    valueMax: 0.8,
+    valueUnit: 'mm'
   }
 ];
 
@@ -601,8 +457,13 @@ export const initialProcedures: NdtProcedure[] = [
     scope: 'Applies to ASME B31.3 carbon steel pressure piping ≥ DN50. Manual contact pulse-echo and dual-element techniques for remaining wall thickness measurement.',
     standardRef: 'ASME Section V Art. 4 & 5 / ASME B31.3 / SANS 17020',
     equipmentRequired: ['Ultrasonic Thickness Gauge (A-scan capable)', '5-step carbon steel calibration block', 'High-temperature couplant gel'],
+    equipmentSlots: [
+      { id: 'slot-ut-gauge', label: 'Ultrasonic thickness gauge', category: 'Ultrasonic', typeHint: 'Thickness', quantity: 1, calibrationRequired: true },
+      { id: 'slot-ut-block', label: 'Calibration / reference block', category: 'General', typeHint: 'block', quantity: 1, calibrationRequired: false, notes: '5-step carbon steel preferred' }
+    ],
     surface: 'Wire brushed, solvent degreased (no loose mill scale or moisture)',
     temperature: '0°C – 60°C surface temperature',
+    temperatureRanges: [{ min: 0, max: 60, unit: '°C', kind: 'surface', required: true }],
     acceptanceCriteria: [initialAcceptanceCriteria[0]],
     generalNotes: 'Calibrate before first measurement and after every 30-minute interval or significant temperature change. Record pre- and post-calibration checks.',
     status: 'Active',
@@ -622,8 +483,13 @@ export const initialProcedures: NdtProcedure[] = [
     scope: 'Surface-breaking and near-surface discontinuity detection on carbon steel structural welds per AWS D1.1. Wet continuous AC yoke technique with black ink on white contrast.',
     standardRef: 'AWS D1.1 Clause 6 / ISO 17638 / SANS 17020',
     equipmentRequired: ['AC/DC Electromagnetic Yoke (min 4.5kg lift force verified)', 'Black magnetic ink (water-based)', 'White contrast paint', 'Calibrated lux meter (min 1000 lux)'],
+    equipmentSlots: [
+      { id: 'slot-mt-yoke', label: 'Electromagnetic yoke', category: 'Magnetic Particle', typeHint: 'Yoke', quantity: 1, calibrationRequired: true },
+      { id: 'slot-mt-lux', label: 'Illumination / lux meter', category: 'General', typeHint: 'Lux', quantity: 1, calibrationRequired: true }
+    ],
     surface: 'Contrast paint applied over wire-brushed and degreased surface',
     temperature: '10°C – 50°C',
+    temperatureRanges: [{ min: 10, max: 50, unit: '°C', kind: 'ambient', required: true }],
     acceptanceCriteria: [initialAcceptanceCriteria[1]],
     generalNotes: 'Perform lift test at start and end of each shift. Overlap inspection paths by minimum 10%. Observe dwell time ≥ 5 seconds per yoke position.',
     status: 'Active',
@@ -643,8 +509,13 @@ export const initialProcedures: NdtProcedure[] = [
     scope: 'Visible and fluorescent dye penetrant testing for surface-breaking defects on austenitic stainless steel, aluminium, and non-magnetic materials.',
     standardRef: 'ASME Section V Art. 6 / ISO 3452-1 / SANS 17020',
     equipmentRequired: ['Type II visible red dye penetrant (SKL-SP2)', 'Non-aqueous developer (SKD-S2)', 'Cleaner/remover (SKC-S)', 'Calibrated white light meter (≥1000 lux)', 'Timer'],
+    equipmentSlots: [
+      { id: 'slot-pt-kit', label: 'Penetrant system / kit', category: 'Liquid Penetrant', typeHint: 'Penetrant', quantity: 1, calibrationRequired: false },
+      { id: 'slot-pt-lux', label: 'White light / lux meter', category: 'General', typeHint: 'Lux', quantity: 1, calibrationRequired: true }
+    ],
     surface: 'Solvent cleaned, free from oil, grease, coatings, and moisture',
     temperature: '10°C – 50°C',
+    temperatureRanges: [{ min: 10, max: 50, unit: '°C', kind: 'ambient', required: true }],
     acceptanceCriteria: [initialAcceptanceCriteria[2]],
     generalNotes: 'Penetrant dwell time: minimum 10 minutes. Developer dwell time: minimum 7 minutes before interpretation. Record ambient light level in lux.',
     status: 'Draft',

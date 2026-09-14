@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { X, Plus, Sparkles, Calendar, Shield, AlertTriangle, CheckCircle2, UserCheck, Link } from 'lucide-react';
 import { Job, Customer, Inspector, Equipment, NdtMethod, JobStatus, AuditEntry, NdtProcedure } from '../../types';
 import { StorageService } from '../../services/storage';
-import { validateInspectorEligibility, validateSupervisorEligibility, validateLevelCompliance } from '../../utils/validation';
+import { validateInspectorEligibility, validateSupervisorEligibility, validateLevelCompliance, suggestEquipmentForSlots, checkExpiry, isLevel1ForMethod, getMethodCertLevel } from '../../utils/validation';
+import { ensureProcedureSnapshotOnJob } from '../../utils/procedureSnapshot';
 import { Badge } from '../common/Badge';
 
 interface JobFormModalProps {
@@ -25,6 +26,7 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
   const sites = selectedCustomer?.sites || [];
   const [siteId, setSiteId] = useState(existingJob?.siteId || (sites.length > 0 ? sites[0].id : ''));
   const [inspectionDate, setInspectionDate] = useState(existingJob?.inspectionDate || new Date().toISOString().split('T')[0]);
+  const [dueDate, setDueDate] = useState(existingJob?.dueDate || '');
   const [inspectorId, setInspectorId] = useState(existingJob?.inspectorId || '');
   const [supervisorId, setSupervisorId] = useState(existingJob?.supervisorId || '');
   const [method, setMethod] = useState<NdtMethod>(existingJob?.method || 'UT');
@@ -38,12 +40,20 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
   if (!isOpen) return null;
 
   const selectedInspector = inspectors.find(i => i.id === inspectorId);
-  const isLevel1 = selectedInspector?.level === 'Level 1';
+  const isLevel1 = selectedInspector ? isLevel1ForMethod(selectedInspector, method) : false;
   const availableEquipment = equipment.filter(
     e => e.status !== 'Out of Service' || equipmentIds.includes(e.id)
   );
 
   const toggleEquipment = (id: string) => {
+    const eq = equipment.find(e => e.id === id);
+    if (eq && !equipmentIds.includes(id)) {
+      const cal = checkExpiry(eq.calibrationExpiryDate);
+      if (cal.status === 'expired') {
+        alert(`Cannot link ${eq.name} — calibration is expired (${cal.formattedText}).`);
+        return;
+      }
+    }
     setEquipmentIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
@@ -52,7 +62,13 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
     .filter(i => i.id !== inspectorId)
     .map(i => ({ inspector: i, eligibility: validateSupervisorEligibility(i, method) }));
   const eligibleSupervisors = supervisorOptions.filter(s => !s.eligibility.blocked);
-  const blockedSupervisors = supervisorOptions.filter(s => s.eligibility.blocked && (s.inspector.level === 'Level 2' || s.inspector.level === 'Level 3'));
+  const blockedSupervisors = supervisorOptions.filter(s => {
+    if (s.eligibility.blocked) {
+      const lvl = getMethodCertLevel(s.inspector, method);
+      return lvl === 'Level 2' || lvl === 'Level 3' || s.inspector.methods.includes(method);
+    }
+    return false;
+  });
 
   // Active procedures for the selected method
   const matchingProcedures = procedures.filter(p => p.method === method && p.status === 'Active');
@@ -86,6 +102,17 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
     if (proc) {
       setScope(proc.scope);
       setStandardSpec(proc.standardRef);
+      // Suggest in-cal equipment matching WEP slots (Admin confirms)
+      const suggestions = suggestEquipmentForSlots(proc.equipmentSlots, equipment, proc.method);
+      const suggestedIds = suggestions
+        .map(s => s.candidates[0]?.id)
+        .filter((id): id is string => Boolean(id));
+      if (suggestedIds.length > 0) {
+        setEquipmentIds(prev => {
+          const merged = [...new Set([...prev, ...suggestedIds])];
+          return merged;
+        });
+      }
     }
   };
 
@@ -129,12 +156,13 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
     }
 
     if (existingJob) {
-      const updatedJob: Job = {
+      let updatedJob: Job = {
         ...existingJob,
         jobNumber,
         customerId,
         siteId,
         inspectionDate,
+        dueDate: dueDate || undefined,
         inspectorId,
         supervisorId: isLevel1 ? supervisorId : undefined,
         method,
@@ -146,6 +174,9 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
         generalNotes,
         status
       };
+      if (status === 'Assigned' || status === 'In Progress') {
+        updatedJob = ensureProcedureSnapshotOnJob(updatedJob, procedures, 'assign');
+      }
       StorageService.updateJob(updatedJob);
       onJobCreated(updatedJob);
     } else {
@@ -179,11 +210,12 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
         });
       }
 
-      const newJob = StorageService.addJob({
+      let newJobPayload: Omit<Job, 'id' | 'createdAt' | 'updatedAt'> = {
         jobNumber,
         customerId,
         siteId,
         inspectionDate,
+        dueDate: dueDate || undefined,
         inspectorId,
         supervisorId: isLevel1 ? supervisorId : undefined,
         method,
@@ -199,7 +231,18 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
         overallResult: 'PENDING',
         items: [],
         auditTrail: auditEntries
-      });
+      };
+      if (status === 'Assigned' || status === 'In Progress') {
+        newJobPayload = ensureProcedureSnapshotOnJob(
+          { ...newJobPayload, id: 'temp', createdAt: '', updatedAt: '' } as Job,
+          procedures,
+          'assign'
+        );
+        const { id: _i, createdAt: _c, updatedAt: _u, ...rest } = newJobPayload as Job;
+        newJobPayload = rest;
+      }
+
+      const newJob = StorageService.addJob(newJobPayload);
       onJobCreated(newJob);
     }
 
@@ -272,22 +315,29 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
           </div>
 
           {/* Inspection Date */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Inspection Date *</label>
-            <input type="date" value={inspectionDate} onChange={(e) => setInspectionDate(e.target.value)} required
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Inspection Date *</label>
+              <input type="date" value={inspectionDate} onChange={(e) => setInspectionDate(e.target.value)} required
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Due Date <span className="text-slate-500 font-normal normal-case">(optional)</span></label>
+              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500" />
+            </div>
           </div>
 
           {/* Inspector Selection — Intelligent Filtered */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-              Assigned Inspector * <span className="text-slate-500 font-normal normal-case">(filtered by {method} qualification & cert status)</span>
+              Assigned Inspector * <span className="text-slate-500 font-normal normal-case">(filtered by {method} method cert — verified and not expired)</span>
             </label>
             <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
               {inspectors.map(insp => {
                 const eligibility = validateInspectorEligibility(insp, method);
                 const isSelected = inspectorId === insp.id;
-                const isL1 = insp.level === 'Level 1';
+                const isL1 = isLevel1ForMethod(insp, method);
 
                 return (
                   <button
@@ -326,9 +376,9 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
                           <span className="font-semibold text-sm text-white">{insp.fullName}</span>
                           <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
                             isL1 ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
-                            : insp.level === 'Level 3' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : getMethodCertLevel(insp, method) === 'Level 3' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                             : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                          }`}>{insp.level}</span>
+                          }`}>{method} {getMethodCertLevel(insp, method) || insp.level}</span>
                           <div className="flex gap-1">
                             {insp.methods.map(m => (
                               <span key={m} className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -391,7 +441,7 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-semibold text-sm text-white">{s.fullName}</span>
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-sky-500/20 text-sky-300 border border-sky-500/30">{s.level}</span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-sky-500/20 text-sky-300 border border-sky-500/30">{method} {getMethodCertLevel(s, method) || s.level}</span>
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">{method}</span>
                           </div>
                           <p className={`text-xs mt-0.5 ${eligibility.warning ? 'text-amber-400' : 'text-slate-400'}`}>
@@ -405,7 +455,7 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
                 </div>
                 {blockedSupervisors.length > 0 && (
                   <p className="text-[11px] text-slate-500 mt-2">
-                    {blockedSupervisors.length} Level 2/3 inspector(s) hidden — wrong method or expired certification.
+                    {blockedSupervisors.length} Level 2/3 inspector(s) hidden — missing Verified {method} method cert, pending verification, rejected, or expired.
                   </p>
                 )}
               </div>
@@ -427,7 +477,14 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
                 ))}
               </select>
               {linkedProcedureId && (
-                <p className="text-xs text-amber-400/80">✅ Scope and standard specification auto-filled from procedure.</p>
+                <p className="text-xs text-amber-400/80">
+                  ✅ Scope/spec filled from WEP. In-cal equipment matching procedure slots was suggested — confirm or adjust below.
+                </p>
+              )}
+              {isLevel1 && !linkedProcedureId && (
+                <p className="text-xs text-violet-300/90 mt-2">
+                  Recommended for Level 1 jobs: link an Active WEP so findings can be compared to procedure limits.
+                </p>
               )}
             </div>
           )}
