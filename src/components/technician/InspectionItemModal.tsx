@@ -3,6 +3,7 @@ import { X, Camera, Plus, Trash2, CheckCircle2, XCircle, MinusCircle, Sparkles, 
 import { InspectionItem, ItemResult, NdtMethod, InspectionPhoto, AcceptanceCriterion } from '../../types';
 import { StorageService } from '../../services/storage';
 import { isItemEvaluated, compareReadingToCriterion } from '../../utils/validation';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 interface InspectionItemModalProps {
   isOpen: boolean;
@@ -44,6 +45,8 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
   viewOnly = false,
   criteriaLibrary
 }) => {
+  useBodyScrollLock(isOpen);
+
   const [itemNumber, setItemNumber] = useState('');
   const [description, setDescription] = useState('');
   const [reading, setReading] = useState('');
@@ -234,7 +237,7 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/85 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/85 backdrop-blur-sm p-0 sm:p-4 overflow-hidden">
       <div className="bg-slate-900 border border-slate-800 w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[94vh] overflow-hidden animate-in fade-in slide-in-from-bottom duration-200">
         
         {/* Modal Header */}

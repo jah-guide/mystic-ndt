@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Award, Plus, Edit3, Mail, Phone, AlertTriangle, X, ArrowLeft, ChevronRight, Search, FileText, Upload, CheckCircle2, Filter
+  Award, Plus, Edit3, Mail, Phone, AlertTriangle, X, ArrowLeft, ChevronRight, Search, FileText, CheckCircle2, Filter
 } from 'lucide-react';
 import { Inspector, Job, NdtMethod, JobStatus, MethodCertificate } from '../../types';
 import {
@@ -12,14 +12,22 @@ import {
   getMethodCertLevel,
   getMethodCertificate
 } from '../../utils/validation';
+import { getVisionStatus } from '../../utils/visionAuthorization';
+import {
+  CertFilter,
+  countInspectorsByCertFilter,
+  inspectorMatchesCertFilter,
+  visibleMethodsForCertFilter
+} from '../../utils/inspectorCertFilters';
 import { formatDate } from '../../utils/formatters';
 import { Badge } from '../common/Badge';
 import { SimpleBarChart } from '../common/SimpleBarChart';
 import { StorageService } from '../../services/storage';
 import { PLACEHOLDER_CERT_DOC } from '../../services/seedWorkshopRoster';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
+import { DateField } from '../common/DateField';
 
 const METHOD_FILTERS: Array<NdtMethod | 'ALL'> = ['ALL', 'UT', 'MT', 'PT', 'VT'];
-type CertFilter = 'ALL' | 'valid' | 'expiring_soon' | 'expired';
 type MethodChipTone = 'emerald' | 'amber' | 'rose' | 'pending';
 
 function methodChipTone(inspector: Inspector, method: NdtMethod): MethodChipTone {
@@ -51,15 +59,25 @@ interface InspectorManagementProps {
   jobs: Job[];
   onInspectorUpdated: () => void;
   onOpenJob?: (jobId: string) => void;
+  focusInspectorId?: string | null;
+  onFocusConsumed?: () => void;
 }
 
 export const InspectorManagement: React.FC<InspectorManagementProps> = ({
   inspectors,
   jobs,
   onInspectorUpdated,
-  onOpenJob
+  onOpenJob,
+  focusInspectorId
 }) => {
-  const [selectedInspectorId, setSelectedInspectorId] = useState<string | null>(null);
+  const [selectedInspectorId, setSelectedInspectorId] = useState<string | null>(
+    () => focusInspectorId ?? null
+  );
+
+  useEffect(() => {
+    if (!focusInspectorId) return;
+    setSelectedInspectorId(focusInspectorId);
+  }, [focusInspectorId]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingInspector, setEditingInspector] = useState<Inspector | undefined>(undefined);
   const [methodFilter, setMethodFilter] = useState<NdtMethod | 'ALL'>('ALL');
@@ -89,6 +107,9 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
   const [certExpiryDate, setCertExpiryDate] = useState('');
   const [methods, setMethods] = useState<NdtMethod[]>(['UT']);
   const [notes, setNotes] = useState('');
+  const [visionAcuityExpiryDate, setVisionAcuityExpiryDate] = useState('');
+  const [employerAuthorized, setEmployerAuthorized] = useState(true);
+  const [authorizationNotes, setAuthorizationNotes] = useState('');
 
   const selectedInspector = inspectors.find(i => i.id === selectedInspectorId);
 
@@ -104,6 +125,9 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
       setCertExpiryDate(insp.certExpiryDate);
       setMethods([...insp.methods]);
       setNotes(insp.notes || '');
+      setVisionAcuityExpiryDate(insp.visionAcuityExpiryDate || '');
+      setEmployerAuthorized(insp.employerAuthorized !== false);
+      setAuthorizationNotes(insp.authorizationNotes || '');
     } else {
       setEditingInspector(undefined);
       setFullName('');
@@ -115,6 +139,9 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
       setCertExpiryDate(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
       setMethods(['UT', 'MT']);
       setNotes('');
+      setVisionAcuityExpiryDate(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+      setEmployerAuthorized(true);
+      setAuthorizationNotes('');
     }
     setIsModalOpen(true);
   };
@@ -163,7 +190,10 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
         certNumber,
         methods: methodsFromForm,
         methodCertificates,
-        notes
+        notes,
+        visionAcuityExpiryDate: visionAcuityExpiryDate || undefined,
+        employerAuthorized,
+        authorizationNotes: authorizationNotes || undefined
       };
       StorageService.updateInspector({
         ...draft,
@@ -194,7 +224,10 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
         methodCertificates,
         notes,
         level,
-        certExpiryDate
+        certExpiryDate,
+        visionAcuityExpiryDate: visionAcuityExpiryDate || undefined,
+        employerAuthorized,
+        authorizationNotes: authorizationNotes || undefined
       };
       StorageService.addInspector({
         ...draft,
@@ -210,12 +243,11 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
   const filteredInspectors = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return inspectors.filter(insp => {
-      if (methodFilter !== 'ALL' && !insp.methods.includes(methodFilter)) return false;
-      if (levelFilter !== 'ALL' && deriveHighestVerifiedMethodLevel(insp) !== levelFilter) return false;
-      if (certFilter !== 'ALL') {
-        const status = checkExpiry(getInspectorSummaryExpiryDate(insp)).status;
-        if (status !== certFilter) return false;
+      if (methodFilter !== 'ALL' && !insp.methods.includes(methodFilter) && !getInspectorQualifiedMethods(insp).includes(methodFilter)) {
+        return false;
       }
+      if (levelFilter !== 'ALL' && deriveHighestVerifiedMethodLevel(insp) !== levelFilter) return false;
+      if (!inspectorMatchesCertFilter(insp, certFilter, methodFilter)) return false;
       if (q) {
         return (
           insp.fullName.toLowerCase().includes(q) ||
@@ -226,6 +258,14 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
       return true;
     });
   }, [inspectors, methodFilter, certFilter, levelFilter, searchQuery]);
+
+  const validCount = countInspectorsByCertFilter(inspectors, 'valid');
+  const dueSoonCount = countInspectorsByCertFilter(inspectors, 'expiring_soon');
+  const expiredBlockedCount = countInspectorsByCertFilter(inspectors, 'expired');
+
+  const toggleCertKpi = (bucket: 'valid' | 'expiring_soon' | 'expired') => {
+    setCertFilter(prev => (prev === bucket ? 'ALL' : bucket));
+  };
 
   const activeFilterCount =
     (methodFilter !== 'ALL' ? 1 : 0) +
@@ -250,8 +290,10 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
     return `px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${tones[tone]}`;
   };
 
+  useBodyScrollLock(isModalOpen);
+
   const renderModal = () => (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-hidden">
       <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -303,10 +345,34 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
                 className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm font-mono focus:outline-none focus:border-sky-500" />
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Default cert expiry *</label>
-              <input type="date" value={certExpiryDate} onChange={(e) => setCertExpiryDate(e.target.value)} required
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500" />
-              <p className="text-[10px] text-slate-500 mt-1">Applied to new method certs; edit each cert in the registrar.</p>
+              <DateField
+                label="Default cert expiry"
+                required
+                value={certExpiryDate}
+                onChange={setCertExpiryDate}
+                hint="Applied to new method certs; edit each cert in the registrar."
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <DateField
+                label="Vision acuity expiry"
+                clearable
+                value={visionAcuityExpiryDate}
+                onChange={setVisionAcuityExpiryDate}
+                hint="Missing or expired = hard-block on job assign."
+              />
+            </div>
+            <div className="flex flex-col justify-end gap-2 pb-1">
+              <label className="inline-flex items-center gap-2 text-sm text-slate-200 font-semibold">
+                <input type="checkbox" checked={employerAuthorized} onChange={(e) => setEmployerAuthorized(e.target.checked)}
+                  className="rounded border-slate-600" />
+                Employer authorized
+              </label>
+              <input type="text" value={authorizationNotes} onChange={(e) => setAuthorizationNotes(e.target.value)}
+                placeholder="Authorization notes (optional)"
+                className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500" />
             </div>
           </div>
           <div>
@@ -418,6 +484,26 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
                 {deriveHighestVerifiedMethodLevel(selectedInspector)}
               </span>
               <span className="text-[10px] text-slate-500 font-semibold">highest verified</span>
+              {(() => {
+                const vs = getVisionStatus(selectedInspector);
+                const authOk = selectedInspector.employerAuthorized !== false;
+                return (
+                  <>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-black border ${
+                      vs === 'valid' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : vs === 'expiring_soon' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                        : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                    }`}>
+                      Vision {vs === 'missing' ? 'missing' : vs === 'expiring_soon' ? 'due soon' : vs}
+                    </span>
+                    {!authOk && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                        Not authorized
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
             </div>
             <p className="text-sm text-sky-400 font-mono mt-0.5">{selectedInspector.certNumber}</p>
           </div>
@@ -441,7 +527,9 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
           <div>
             <h3 className="text-sm font-black text-white">Method certificate registrar</h3>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Level and expiry are per method (ISO 9712). Employer document verification only — Verified does not mean certification-body issuance.
+              View and verify only. Level, expiry, and certificate files are not edited here —
+              inspectors supply documents; Admin confirms employer file completeness (ISO 9712 / employer written practice).
+              Demo: change methods / seed certs via <span className="text-slate-400">Edit inspector</span>.
             </p>
           </div>
           {methodCerts.length === 0 && (
@@ -456,6 +544,7 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
                     <div className="min-w-0 flex-1 space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant="method" value={mc.method} size="sm">{mc.method}</Badge>
+                        <span className="text-xs font-bold text-white">{mc.level}</span>
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           mc.verificationStatus === 'Verified' ? 'bg-emerald-500/20 text-emerald-300'
                             : mc.verificationStatus === 'PendingVerification' ? 'bg-amber-500/20 text-amber-300'
@@ -464,36 +553,33 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
                           {mc.verificationStatus === 'PendingVerification' ? 'Pending verification' : mc.verificationStatus}
                         </span>
                       </div>
-                      <div className="flex flex-wrap gap-3 items-end">
-                        <label className="space-y-1">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Level</span>
-                          <select
-                            value={mc.level}
-                            onChange={(e) => patchCert(mc.id, { level: e.target.value as MethodCertificate['level'] })}
-                            className="block px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-bold text-white"
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400">
+                        <span>
+                          Expiry{' '}
+                          <span className="text-slate-200 font-semibold">{formatDate(mc.expiryDate)}</span>
+                          {' · '}
+                          <span
+                            className={
+                              mcExpiry.status === 'expired'
+                                ? 'text-rose-400'
+                                : mcExpiry.status === 'expiring_soon'
+                                ? 'text-amber-400'
+                                : 'text-emerald-400'
+                            }
                           >
-                            <option value="Level 1">Level 1</option>
-                            <option value="Level 2">Level 2</option>
-                            <option value="Level 3">Level 3</option>
-                          </select>
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Expiry</span>
-                          <input
-                            type="date"
-                            value={mc.expiryDate}
-                            onChange={(e) => patchCert(mc.id, { expiryDate: e.target.value })}
-                            className="block px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-sky-300"
-                          />
-                        </label>
-                        <div className="text-[11px] text-slate-500 pb-1.5">
-                          {mcExpiry.formattedText}
-                        </div>
+                            {mcExpiry.formattedText}
+                          </span>
+                        </span>
                       </div>
                       <div className="text-xs font-mono text-sky-400">{mc.certNumber}</div>
                       <div className="text-[11px] text-slate-500">{mc.issuer}</div>
                       {mc.rejectionReason && (
                         <p className="text-[11px] text-rose-400">{mc.rejectionReason}</p>
+                      )}
+                      {!mc.documentDataUrl && (
+                        <p className="text-[11px] text-amber-400/90">
+                          No certificate file on file — inspector must upload (ping from Renewals when live).
+                        </p>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
@@ -503,29 +589,6 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
                           <FileText className="w-3.5 h-3.5" /> View
                         </a>
                       )}
-                      <label className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-700 text-slate-300 text-[11px] font-bold cursor-pointer hover:bg-slate-800">
-                        <Upload className="w-3.5 h-3.5" /> Upload
-                        <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          if (file.size > 400_000) {
-                            alert('Demo limit: keep uploads under ~400KB (localStorage).');
-                            return;
-                          }
-                          const reader = new FileReader();
-                          reader.onload = () => {
-                            patchCert(mc.id, {
-                              documentDataUrl: String(reader.result),
-                              documentFileName: file.name,
-                              verificationStatus: 'PendingVerification',
-                              verifiedAt: undefined,
-                              verifiedByName: undefined,
-                              rejectionReason: undefined
-                            });
-                          };
-                          reader.readAsDataURL(file);
-                        }} />
-                      </label>
                       {mc.verificationStatus !== 'Verified' && (
                         <button type="button" onClick={() => patchCert(mc.id, {
                           verificationStatus: 'Verified',
@@ -652,6 +715,42 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
         </button>
       </div>
 
+      <div className="grid grid-cols-3 gap-3">
+        <button
+          type="button"
+          onClick={() => toggleCertKpi('valid')}
+          className={`bg-slate-900 border p-4 rounded-2xl text-left ${
+            certFilter === 'valid' ? 'border-emerald-400/60 ring-1 ring-emerald-500/30' : 'border-slate-800'
+          }`}
+        >
+          <span className="text-[11px] uppercase font-bold text-slate-400 block">Valid certs</span>
+          <div className="text-2xl font-black text-emerald-400 mt-0.5">{validCount}</div>
+          <p className="text-[10px] text-slate-500 mt-1">People with ≥1 verified in-date method</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleCertKpi('expiring_soon')}
+          className={`bg-slate-900 border p-4 rounded-2xl text-left bg-amber-950/10 ${
+            certFilter === 'expiring_soon' ? 'border-amber-400/60 ring-1 ring-amber-500/30' : 'border-amber-500/30'
+          }`}
+        >
+          <span className="text-[11px] uppercase font-bold text-amber-400 block">Due soon</span>
+          <div className="text-2xl font-black text-amber-400 mt-0.5">{dueSoonCount}</div>
+          <p className="text-[10px] text-slate-500 mt-1">People with ≥1 method due within 30 days</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleCertKpi('expired')}
+          className={`bg-slate-900 border p-4 rounded-2xl text-left bg-rose-950/10 ${
+            certFilter === 'expired' ? 'border-rose-400/60 ring-1 ring-rose-500/30' : 'border-rose-500/30'
+          }`}
+        >
+          <span className="text-[11px] uppercase font-bold text-rose-400 block">Expired / blocked</span>
+          <div className="text-2xl font-black text-rose-400 mt-0.5">{expiredBlockedCount}</div>
+          <p className="text-[10px] text-slate-500 mt-1">Expired, pending verify, or rejected</p>
+        </button>
+      </div>
+
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
         <div className="flex gap-2 items-stretch">
           <div className="relative flex-1 min-w-0">
@@ -728,7 +827,7 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
             )}
             {certFilter !== 'ALL' && (
               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-600">
-                Cert: {certFilter === 'expiring_soon' ? 'Due soon' : certFilter === 'expired' ? 'Expired' : 'Valid'}
+                Cert: {certFilter === 'expiring_soon' ? 'Due soon' : certFilter === 'expired' ? 'Expired / blocked' : 'Valid'}
                 <button type="button" onClick={() => setCertFilter('ALL')} className="hover:text-white" aria-label="Clear cert filter">
                   <X className="w-3 h-3" />
                 </button>
@@ -771,7 +870,7 @@ export const InspectorManagement: React.FC<InspectorManagementProps> = ({
               <div className="text-xs text-sky-400 font-mono mt-0.5">{insp.certNumber}</div>
             </div>
             <div className="hidden sm:flex flex-wrap gap-1 shrink-0 justify-end max-w-[240px]">
-              {insp.methods.map(m => {
+              {visibleMethodsForCertFilter(insp, certFilter).map(m => {
                 const lvl = getMethodCertLevel(insp, m);
                 const short = lvl === 'Level 3' ? 'L3' : lvl === 'Level 1' ? 'L1' : 'L2';
                 const tone = methodChipTone(insp, m);

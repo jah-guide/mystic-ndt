@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
-  Briefcase, Users, Award, Wrench, Settings, LayoutDashboard
+  Briefcase, Users, Award, Wrench, Settings, LayoutDashboard, RefreshCw, CalendarDays
 } from 'lucide-react';
 import { UserRole, Customer, Inspector, Equipment, Job, CompanySettings, NdtProcedure } from './types';
 import { StorageService } from './services/storage';
@@ -10,14 +10,21 @@ import { JobList } from './components/admin/JobList';
 import { CustomerManagement } from './components/admin/CustomerManagement';
 import { InspectorManagement } from './components/admin/InspectorManagement';
 import { EquipmentManagement } from './components/admin/EquipmentManagement';
+import { RenewalsHub } from './components/admin/RenewalsHub';
+import { DispatchBoard } from './components/admin/DispatchBoard';
 import { SettingsView } from './components/admin/SettingsView';
 import { TechnicianDashboard } from './components/technician/TechnicianDashboard';
 import { JobDetailView } from './components/technician/JobDetailView';
+import { JobFormModal } from './components/admin/JobFormModal';
 import { Level3Dashboard } from './components/verifier/Level3Dashboard';
+
+type AdminTab = 'dashboard' | 'jobs' | 'customers' | 'inspectors' | 'equipment' | 'renewals' | 'dispatch' | 'settings';
 
 export const App: React.FC = () => {
   const [role, setRole] = useState<UserRole>('technician'); // Default to mobile technician view
-  const [adminTab, setAdminTab] = useState<'dashboard' | 'jobs' | 'customers' | 'inspectors' | 'equipment' | 'settings'>('dashboard');
+  const [adminTab, setAdminTab] = useState<AdminTab>('dashboard');
+  const [focusInspectorId, setFocusInspectorId] = useState<string | null>(null);
+  const [focusEquipmentId, setFocusEquipmentId] = useState<string | null>(null);
 
   // Application Data State
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -32,6 +39,7 @@ export const App: React.FC = () => {
   
   // Active Inspection Job view (when opened from Admin or Tech)
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [cockpitEditJobId, setCockpitEditJobId] = useState<string | null>(null);
 
   const loadAllData = useCallback(() => {
     const c = StorageService.getCustomers();
@@ -80,6 +88,7 @@ export const App: React.FC = () => {
   };
 
   const activeJob = jobs.find(j => j.id === activeJobId);
+  const cockpitEditJob = jobs.find(j => j.id === cockpitEditJobId);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white">
@@ -90,6 +99,7 @@ export const App: React.FC = () => {
         onRoleChange={(newRole) => {
           setRole(newRole);
           setActiveJobId(null);
+          setCockpitEditJobId(null);
         }}
         inspectors={inspectors}
         selectedInspectorId={selectedInspectorId}
@@ -110,8 +120,12 @@ export const App: React.FC = () => {
             equipmentList={equipment.filter(e => activeJob.equipmentIds?.includes(e.id))}
             settings={settings}
             userRole={role}
-            onBack={() => setActiveJobId(null)}
+            onBack={() => {
+              setActiveJobId(null);
+              setCockpitEditJobId(null);
+            }}
             onJobUpdated={handleJobUpdated}
+            onEditJob={() => setCockpitEditJobId(activeJob.id)}
           />
         ) : role === 'admin' ? (
           <div>
@@ -184,6 +198,32 @@ export const App: React.FC = () => {
 
               <button
                 type="button"
+                onClick={() => setAdminTab('renewals')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
+                  adminTab === 'renewals'
+                    ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Renewals</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAdminTab('dispatch')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
+                  adminTab === 'dispatch'
+                    ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <CalendarDays className="w-4 h-4" />
+                <span>Dispatch</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setAdminTab('settings')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
                   adminTab === 'settings'
@@ -205,7 +245,15 @@ export const App: React.FC = () => {
                 equipment={equipment}
                 procedures={procedures}
                 settings={settings}
-                onNavigateToTab={(t) => setAdminTab(t as any)}
+                onNavigateToTab={(t) => setAdminTab(t as AdminTab)}
+                onOpenInspector={(id) => {
+                  setFocusInspectorId(id);
+                  setAdminTab('inspectors');
+                }}
+                onOpenEquipment={(id) => {
+                  setFocusEquipmentId(id);
+                  setAdminTab('equipment');
+                }}
                 onOpenJobDetail={(j) => setActiveJobId(j.id)}
                 onJobUpdated={handleJobUpdated}
               />
@@ -235,19 +283,50 @@ export const App: React.FC = () => {
 
             {adminTab === 'inspectors' && (
               <InspectorManagement
+                key={focusInspectorId ? `insp-${focusInspectorId}` : 'inspectors-list'}
                 inspectors={inspectors}
                 jobs={jobs}
                 onInspectorUpdated={loadAllData}
                 onOpenJob={(id) => setActiveJobId(id)}
+                focusInspectorId={focusInspectorId}
               />
             )}
 
             {adminTab === 'equipment' && (
               <EquipmentManagement
+                key={focusEquipmentId ? `eq-${focusEquipmentId}` : 'equipment-list'}
                 equipment={equipment}
                 jobs={jobs}
                 onEquipmentUpdated={loadAllData}
                 onOpenJob={(id) => setActiveJobId(id)}
+                focusEquipmentId={focusEquipmentId}
+              />
+            )}
+
+            {adminTab === 'renewals' && (
+              <RenewalsHub
+                inspectors={inspectors}
+                equipment={equipment}
+                onOpenInspector={(id) => {
+                  setFocusInspectorId(id);
+                  setAdminTab('inspectors');
+                }}
+                onOpenEquipment={(id) => {
+                  setFocusEquipmentId(id);
+                  setAdminTab('equipment');
+                }}
+              />
+            )}
+
+            {adminTab === 'dispatch' && (
+              <DispatchBoard
+                jobs={jobs}
+                customers={customers}
+                inspectors={inspectors}
+                equipment={equipment}
+                procedures={procedures}
+                onJobUpdated={loadAllData}
+                onOpenJob={(jobId) => setActiveJobId(jobId)}
               />
             )}
 
@@ -287,6 +366,22 @@ export const App: React.FC = () => {
         )}
 
       </main>
+
+      {role === 'admin' && cockpitEditJob && (
+        <JobFormModal
+          isOpen={Boolean(cockpitEditJob)}
+          onClose={() => setCockpitEditJobId(null)}
+          onJobCreated={(updatedJob) => {
+            handleJobUpdated(updatedJob);
+            setCockpitEditJobId(null);
+          }}
+          customers={customers}
+          inspectors={inspectors}
+          equipment={equipment}
+          procedures={procedures}
+          existingJob={cockpitEditJob}
+        />
+      )}
 
       {/* Offline Status & Standard Compliance Footer */}
       <footer className="border-t border-slate-900 bg-slate-950/80 py-3 text-center text-xs text-slate-500">

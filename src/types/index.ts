@@ -35,6 +35,7 @@ export type ProcedureStatus = 'Draft' | 'Active' | 'Superseded';
 export type AuditAction =
   | 'JOB_CREATED'
   | 'JOB_ASSIGNED'
+  | 'JOB_STARTED'
   | 'ITEM_ADDED'
   | 'ITEM_UPDATED'
   | 'ITEM_DELETED'
@@ -61,7 +62,9 @@ export type AuditAction =
   | 'PROCEDURE_SNAPSHOT_REPLACE'
   | 'FINAL_WITHOUT_L3'
   | 'MARK_DELIVERED'
-  | 'AUDIT_PACK_EXPORTED';
+  | 'AUDIT_PACK_EXPORTED'
+  | 'JOB_DRAFT_SAVED'
+  | 'EXAM_CONDITIONS_UPDATED';
 
 export interface AuditEntry {
   id: string;
@@ -105,6 +108,11 @@ export interface Inspector {
   /** For Level 1 technicians: the ID of their supervising Level 2 or Level 3 */
   defaultSupervisorId?: string;
   notes?: string;
+  /** Employer near-vision acuity expiry (YYYY-MM-DD) — assign hard-block if missing/expired */
+  visionAcuityExpiryDate?: string;
+  /** Employer operating authorization cleared (default true when undefined) */
+  employerAuthorized?: boolean;
+  authorizationNotes?: string;
 }
 
 export type MethodCertVerificationStatus = 'PendingVerification' | 'Verified' | 'Rejected';
@@ -376,10 +384,16 @@ export interface Job {
   procedureSnapshot?: ProcedureSnapshot;
 
   generalNotes?: string;
-  surfaceCondition?: string; // e.g. "Cleaned, ground flush"
-  temperature?: string;     // e.g. "21°C" — display
-  /** Numeric job temperature (°C) for WEP range compare */
+  /** Client / planned surface prep note (work order) — not certificate as-found */
+  surfacePrepInstruction?: string;
+  /** As-found surface condition recorded on site for the examination */
+  surfaceCondition?: string;
+  /** Legacy display string — keep synced from temperatureC as `${n}°C` */
+  temperature?: string;
+  /** Measured examination temperature (°C) — canonical */
   temperatureC?: number;
+  /** Ambient / examination light as recorded (e.g. "850 Lux") — required for VT/MT at submit */
+  ambientLight?: string;
   /** Required when submitting L1 findings while outside WEP temp range */
   temperatureOutOfRangeReason?: string;
   /** Optional slot → equipment assignment from WEP */

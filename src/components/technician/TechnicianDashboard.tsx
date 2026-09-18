@@ -6,6 +6,7 @@ import {
 import { Job, Customer, Inspector, Equipment, CompanySettings } from '../../types';
 import { Badge } from '../common/Badge';
 import { formatDate } from '../../utils/formatters';
+import { deriveHighestVerifiedMethodLevel } from '../../utils/validation';
 import { JobDetailView } from './JobDetailView';
 
 interface TechnicianDashboardProps {
@@ -18,6 +19,12 @@ interface TechnicianDashboardProps {
   onJobUpdated: (updatedJob: Job) => void;
 }
 
+/** ISO 9712: only L2/L3 may supervise — L1 must never see a Supervise queue. */
+function canShowSuperviseTab(inspector: Inspector | undefined): boolean {
+  if (!inspector) return false;
+  return deriveHighestVerifiedMethodLevel(inspector) !== 'Level 1';
+}
+
 export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
   jobs,
   customers,
@@ -27,30 +34,39 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
   currentInspectorId,
   onJobUpdated
 }) => {
-  const toSuperviseJobs = jobs.filter(
-    j => j.supervisorId === currentInspectorId && j.status === 'Awaiting Supervisor'
-  );
-  const revisionJobs = jobs.filter(
-    j => j.supervisorId === currentInspectorId && j.status === 'Revision Required'
-  );
+  const currentInspector = inspectors.find(i => i.id === currentInspectorId);
+  const showSuperviseTab = canShowSuperviseTab(currentInspector);
+
+  const toSuperviseJobs = showSuperviseTab
+    ? jobs.filter(
+        j => j.supervisorId === currentInspectorId && j.status === 'Awaiting Supervisor'
+      )
+    : [];
+  const revisionJobs = showSuperviseTab
+    ? jobs.filter(
+        j => j.supervisorId === currentInspectorId && j.status === 'Revision Required'
+      )
+    : [];
 
   const [activeTab, setActiveTab] = useState<'my_jobs' | 'to_supervise' | 'completed'>('my_jobs');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!showSuperviseTab) {
+      setActiveTab('my_jobs');
+      return;
+    }
     setActiveTab(toSuperviseJobs.length > 0 ? 'to_supervise' : 'my_jobs');
-  }, [currentInspectorId]);
-
-  const currentInspector = inspectors.find(i => i.id === currentInspectorId);
+  }, [currentInspectorId, showSuperviseTab]);
 
   const myLeadJobs = jobs.filter(j => j.inspectorId === currentInspectorId);
-  const activeJobs = myLeadJobs.filter(j => j.status !== 'Completed');
+  const activeJobs = myLeadJobs.filter(j => j.status !== 'Completed' && j.status !== 'Draft');
   const completedJobs = myLeadJobs.filter(j => j.status === 'Completed');
 
   const displayedJobs = (
     activeTab === 'my_jobs' ? activeJobs :
-    activeTab === 'to_supervise' ? toSuperviseJobs :
+    activeTab === 'to_supervise' && showSuperviseTab ? toSuperviseJobs :
     completedJobs
   ).filter(job => {
     if (!searchQuery.trim()) return true;
@@ -186,9 +202,9 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wider text-sky-400">
-                {toSuperviseJobs.length > 0 ? 'Supervisor Home' : 'Technician Cockpit'}
+                {showSuperviseTab && toSuperviseJobs.length > 0 ? 'Supervisor Home' : 'Technician Cockpit'}
               </span>
-              {currentInspector?.level === 'Level 1' && (
+              {currentInspector && deriveHighestVerifiedMethodLevel(currentInspector) === 'Level 1' && (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-violet-500/20 text-violet-300 border border-violet-500/30">
                   Level 1
                 </span>
@@ -208,7 +224,7 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
               <span className="text-2xl sm:text-3xl font-black text-sky-400">{activeJobs.length}</span>
               <span className="text-[11px] uppercase font-bold text-slate-400 block">My Active</span>
             </div>
-            {(toSuperviseJobs.length > 0 || revisionJobs.length > 0) && (
+            {showSuperviseTab && (toSuperviseJobs.length > 0 || revisionJobs.length > 0) && (
               <div>
                 <span className="text-lg font-black text-violet-400">{toSuperviseJobs.length}</span>
                 <span className="text-[10px] uppercase font-bold text-violet-300/80 block">To Supervise</span>
@@ -219,7 +235,11 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
       </div>
 
       <div className="space-y-3 mb-5">
-        <div className="grid grid-cols-3 gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800 shadow-inner">
+        <div
+          className={`grid gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800 shadow-inner ${
+            showSuperviseTab ? 'grid-cols-3' : 'grid-cols-2'
+          }`}
+        >
           <button
             type="button"
             onClick={() => setActiveTab('my_jobs')}
@@ -233,18 +253,20 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
             <span>My Jobs ({activeJobs.length})</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('to_supervise')}
-            className={`py-2.5 px-2 rounded-xl font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all relative ${
-              activeTab === 'to_supervise'
-                ? 'bg-violet-600 text-white shadow-md shadow-violet-600/30'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <UserCheck className="w-3.5 h-3.5 shrink-0" />
-            <span>Supervise ({toSuperviseJobs.length})</span>
-          </button>
+          {showSuperviseTab && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('to_supervise')}
+              className={`py-2.5 px-2 rounded-xl font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all relative ${
+                activeTab === 'to_supervise'
+                  ? 'bg-violet-600 text-white shadow-md shadow-violet-600/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5 shrink-0" />
+              <span>Supervise ({toSuperviseJobs.length})</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -272,7 +294,7 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
         </div>
       </div>
 
-      {activeTab === 'to_supervise' && (
+      {showSuperviseTab && activeTab === 'to_supervise' && (
         <div className="space-y-4">
           <div>
             <h2 className="text-xs font-bold uppercase tracking-wider text-violet-300 mb-2">

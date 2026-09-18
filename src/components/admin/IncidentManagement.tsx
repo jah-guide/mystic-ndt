@@ -6,6 +6,7 @@ import {
 import { EquipmentIncident, Equipment } from '../../types';
 import { StorageService } from '../../services/storage';
 import { formatDateTime } from '../../utils/formatters';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 interface IncidentManagementProps {
   incidents: EquipmentIncident[];
@@ -36,6 +37,8 @@ export const IncidentManagement: React.FC<IncidentManagementProps> = ({
   const [selectedIncident, setSelectedIncident] = useState<EquipmentIncident | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
   const [newStatus, setNewStatus] = useState<EquipmentIncident['status']>('Open');
+
+  useBodyScrollLock(Boolean(selectedIncident));
 
   const openCount = incidents.filter(i => i.status === 'Open').length;
   const underReviewCount = incidents.filter(i => i.status === 'Under Review').length;
@@ -195,7 +198,7 @@ export const IncidentManagement: React.FC<IncidentManagementProps> = ({
 
       {/* Incident Detail / Resolution Modal */}
       {selectedIncident && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-hidden">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
 
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">

@@ -7,6 +7,7 @@ import { NdtProcedure, NdtMethod, AcceptanceCriterion, Inspector } from '../../t
 import { StorageService } from '../../services/storage';
 import { formatDate, formatDateTime } from '../../utils/formatters';
 import { Badge } from '../common/Badge';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 interface ProcedureManagementProps {
   procedures: NdtProcedure[];
@@ -48,6 +49,8 @@ export const ProcedureManagement: React.FC<ProcedureManagementProps> = ({
   const [generalNotes, setGeneralNotes] = useState('');
   const [criteriaRows, setCriteriaRows] = useState<AcceptanceCriterion[]>([]);
   const [procStatus, setProcStatus] = useState<NdtProcedure['status']>('Draft');
+
+  useBodyScrollLock(isModalOpen);
 
   const openCreate = () => {
     setEditingProc(undefined);
@@ -308,7 +311,7 @@ export const ProcedureManagement: React.FC<ProcedureManagementProps> = ({
 
       {/* Create / Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-hidden">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
 
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">

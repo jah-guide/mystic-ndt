@@ -47,6 +47,8 @@ export const initialJobs: Job[] = [
     generalNotes: 'Inspections carried out at ambient temperature (~22°C). High-temperature couplant used where required.',
     surfaceCondition: 'Wire brushed & solvent degreased',
     temperature: '22°C',
+    temperatureC: 22,
+    ambientLight: 'Daylight / shop lighting',
     status: 'Completed',
     overallResult: 'PASS',
     reportNumber: 'REP-2026-0001',
@@ -128,6 +130,8 @@ export const initialJobs: Job[] = [
     generalNotes: 'Demo: completed after due date for inspector on-time chart.',
     surfaceCondition: 'As-welded',
     temperature: '18°C',
+    temperatureC: 18,
+    ambientLight: '950 Lux (shop)',
     status: 'Completed',
     overallResult: 'PASS',
     reportNumber: 'REP-2026-0001B',
@@ -168,6 +172,8 @@ export const initialJobs: Job[] = [
     generalNotes: 'Continuous AC wet method using black ink on white contrast paint.',
     surfaceCondition: 'White contrast paint applied on wire-brushed weld',
     temperature: '21°C',
+    temperatureC: 21,
+    ambientLight: '1200 Lux',
     status: 'In Progress',
     overallResult: 'PENDING',
     auditTrail: [
@@ -224,16 +230,14 @@ export const initialJobs: Job[] = [
     standardSpec: 'ASME Section V Art. 4 / ASME B31.3',
     equipmentIds: ['eq-1'],
     generalNotes: 'Level 1 records readings only. Supervising Level 2 evaluates acceptance.',
-    surfaceCondition: 'Wire brushed & solvent degreased',
-    temperature: '21°C',
-    temperatureC: 21,
+    surfacePrepInstruction: 'Client to wire brush and degrease prior to arrival',
     status: 'Assigned',
     overallResult: 'PENDING',
     procedureId: 'proc-1',
     procedureNumber: 'WEP-UT-001',
     auditTrail: [
       { id: 'aud-3-1', timestamp: '2026-09-11T09:00:00.000Z', actorName: 'System Admin', actorRole: 'Admin', action: 'JOB_CREATED', details: 'UT job created for Sasol site — Level 1 with supervisor.' },
-      { id: 'aud-3-2', timestamp: '2026-09-11T09:00:00.000Z', actorName: 'System Admin', actorRole: 'Admin', action: 'JOB_ASSIGNED', details: 'Level 1 technician Lesego Nkosi assigned. Supervisor: Thabo Mokoena (valid UT cert).' }
+      { id: 'aud-3-2', timestamp: '2026-09-11T09:00:00.000Z', actorName: 'System Admin', actorRole: 'Admin', action: 'JOB_ASSIGNED', details: 'Level 1 technician Lesego Nkosi assigned. Supervisor: Thabo Mokoena (valid UT cert). Field records as-found conditions after Start work.' }
     ],
     items: [],
     createdAt: '2026-09-11T09:00:00.000Z',
@@ -325,6 +329,7 @@ export const initialJobs: Job[] = [
     surfaceCondition: 'Contrast paint applied',
     temperature: '23°C',
     temperatureC: 23,
+    ambientLight: '1100 Lux',
     status: 'Revision Required',
     overallResult: 'PENDING',
     findingsRevision: 1,
@@ -385,6 +390,35 @@ export const initialJobs: Job[] = [
     ],
     createdAt: '2026-09-12T08:00:00.000Z',
     updatedAt: '2026-09-12T10:15:00.000Z'
+  },
+  {
+    id: 'job-draft-1',
+    jobNumber: 'NDT-2026-0006',
+    customerId: 'cust-2',
+    siteId: 'site-2-1',
+    inspectionDate: '2026-09-16',
+    dueDate: '2026-09-20',
+    inspectorId: '',
+    method: 'UT',
+    scope: 'Ultrasonic thickness survey and weld volumetric examination',
+    standardSpec: 'ASME Section V / ASME B31.3',
+    equipmentIds: [],
+    generalNotes: 'Draft work order — finish people, procedure, and kit before Assign.',
+    status: 'Draft',
+    overallResult: 'PENDING',
+    auditTrail: [
+      {
+        id: 'aud-draft-1',
+        timestamp: '2026-09-14T10:00:00.000Z',
+        actorName: 'System Admin',
+        actorRole: 'Admin',
+        action: 'JOB_DRAFT_SAVED',
+        details: 'Draft job NDT-2026-0006 saved (Work step only) for wizard demo.'
+      }
+    ],
+    items: [],
+    createdAt: '2026-09-14T10:00:00.000Z',
+    updatedAt: '2026-09-14T10:00:00.000Z'
   }
 ];
 

@@ -98,7 +98,9 @@ function withMethodCerts(
     ...insp,
     level: derivedLevel,
     certExpiryDate: soonestExpiry,
-    methodCertificates
+    methodCertificates,
+    visionAcuityExpiryDate: insp.visionAcuityExpiryDate || '2027-06-30',
+    employerAuthorized: insp.employerAuthorized !== false
   };
 }
 
@@ -381,73 +383,78 @@ const workshopInspectorsBase: Inspector[] = [
 
 /** Enrich with per-method certificates (assignment source of truth). Mixed levels + verify demos. */
 export const workshopInspectors: Inspector[] = workshopInspectorsBase.map(insp => {
+  let enriched: Inspector;
   if (insp.id === 'insp-1') {
-    // Thabo: UT/MT/PT L2, VT L1
-    return withMethodCerts(insp, {
+    enriched = withMethodCerts(insp, {
       levelByMethod: { UT: 'Level 2', MT: 'Level 2', PT: 'Level 2', VT: 'Level 1' }
     });
-  }
-  if (insp.id === 'insp-l3-1') {
-    // Johan: UT/MT L3, PT/VT L2
-    return withMethodCerts(insp, {
+  } else if (insp.id === 'insp-l3-1') {
+    enriched = withMethodCerts(insp, {
       levelByMethod: { UT: 'Level 3', MT: 'Level 3', PT: 'Level 2', VT: 'Level 2' }
     });
-  }
-  if (insp.id === 'insp-2') {
-    // Sipho: PT pending; MT L2, VT L1
-    return withMethodCerts(insp, {
+  } else if (insp.id === 'insp-2') {
+    enriched = withMethodCerts(insp, {
       pendingMethods: ['PT'],
       levelByMethod: { MT: 'Level 2', PT: 'Level 2', VT: 'Level 1' }
     });
-  }
-  if (insp.id === 'insp-4') {
-    // Lesego: UT L1, MT L1
-    return withMethodCerts(insp, {
+  } else if (insp.id === 'insp-4') {
+    enriched = withMethodCerts(insp, {
       levelByMethod: { UT: 'Level 1', MT: 'Level 1' }
     });
-  }
-  if (insp.id === 'insp-5') {
-    // Amina: UT L2, VT L1
-    return withMethodCerts(insp, {
+  } else if (insp.id === 'insp-5') {
+    enriched = withMethodCerts(insp, {
       levelByMethod: { UT: 'Level 2', VT: 'Level 1' }
     });
-  }
-  if (insp.id === 'insp-7') {
-    // Nadia: VT rejected; PT L2, VT L1
-    return withMethodCerts(insp, {
+  } else if (insp.id === 'insp-7') {
+    enriched = withMethodCerts(insp, {
       rejectedMethods: ['VT'],
       levelByMethod: { PT: 'Level 2', VT: 'Level 1' }
     });
-  }
-  if (insp.id === 'insp-8') {
-    // Mandla: UT L2, MT L2, VT L1
-    return withMethodCerts(insp, {
+  } else if (insp.id === 'insp-8') {
+    enriched = withMethodCerts(insp, {
       levelByMethod: { UT: 'Level 2', MT: 'Level 2', VT: 'Level 1' }
     });
-  }
-  if (insp.id === 'insp-9') {
-    // Fatima: UT L3, MT L2
-    return withMethodCerts(insp, {
+  } else if (insp.id === 'insp-9') {
+    enriched = withMethodCerts(insp, {
       levelByMethod: { UT: 'Level 3', MT: 'Level 2' }
     });
-  }
-  if (insp.id === 'insp-11') {
-    // Thandiwe: VT L1, PT L1
-    return withMethodCerts(insp, {
+  } else if (insp.id === 'insp-11') {
+    enriched = withMethodCerts(insp, {
       levelByMethod: { VT: 'Level 1', PT: 'Level 1' }
     });
-  }
-  if (insp.id === 'insp-12') {
-    // Ryan: UT pending
-    return withMethodCerts(insp, { pendingMethods: ['UT'] });
-  }
-  if (insp.id === 'insp-15') {
-    // Precious: PT L2, MT L2, VT L1
-    return withMethodCerts(insp, {
+  } else if (insp.id === 'insp-12') {
+    enriched = withMethodCerts(insp, { pendingMethods: ['UT'] });
+  } else if (insp.id === 'insp-15') {
+    enriched = withMethodCerts(insp, {
       levelByMethod: { PT: 'Level 2', MT: 'Level 2', VT: 'Level 1' }
     });
+  } else {
+    enriched = withMethodCerts(insp);
   }
-  return withMethodCerts(insp);
+
+  // Vision / authorization demos (person-level assign gates)
+  if (insp.id === 'insp-14') {
+    // Chris: valid UT L1 cert but EXPIRED vision — hard-block assign
+    return {
+      ...enriched,
+      visionAcuityExpiryDate: '2026-06-01',
+      notes: `${enriched.notes || ''} Vision acuity expired — assignment blocked until renew.`.trim()
+    };
+  }
+  if (insp.id === 'insp-8') {
+    // Mandla: vision due soon — warn
+    return { ...enriched, visionAcuityExpiryDate: '2026-09-28' };
+  }
+  if (insp.id === 'insp-13') {
+    // Lindiwe: missing vision date — hard-block (MT cert otherwise OK / due soon)
+    const { visionAcuityExpiryDate: _drop, ...rest } = enriched;
+    return {
+      ...rest,
+      visionAcuityExpiryDate: undefined,
+      notes: `${enriched.notes || ''} Near-vision date missing from employer file.`.trim()
+    };
+  }
+  return enriched;
 });
 
 function makeEquip(opts: {

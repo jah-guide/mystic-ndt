@@ -7,6 +7,7 @@ import { SignaturePad } from '../common/SignaturePad';
 import { formatDateTime } from '../../utils/formatters';
 import { StorageService } from '../../services/storage';
 import { clearFieldCompletionFields, clearL3CertificationFields, resetItemEvaluations } from '../../utils/validation';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 interface Level3ReviewModalProps {
   isOpen: boolean;
@@ -33,6 +34,8 @@ export const Level3ReviewModal: React.FC<Level3ReviewModalProps> = ({
     'Verified calibration records, ASME/ISO acceptance criteria, and evidential photos. Technical certification approved.'
   );
   const [rejectionReason, setRejectionReason] = useState<string>('');
+
+  useBodyScrollLock(isOpen);
 
   if (!isOpen) return null;
 
@@ -122,7 +125,7 @@ export const Level3ReviewModal: React.FC<Level3ReviewModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-hidden">
       <div className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[94vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-900">

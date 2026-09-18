@@ -5,6 +5,7 @@ import {
 import { Customer, Site, Job } from '../../types';
 import { StorageService } from '../../services/storage';
 import { formatDate } from '../../utils/formatters';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 interface CustomerManagementProps {
   customers: Customer[];
@@ -30,6 +31,8 @@ export const CustomerManagement: React.FC<CustomerManagementProps> = ({
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [sites, setSites] = useState<Site[]>([]);
+
+  useBodyScrollLock(isModalOpen);
 
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
 
@@ -257,7 +260,7 @@ export const CustomerManagement: React.FC<CustomerManagementProps> = ({
 
   function renderModal() {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-hidden">
         <div className="bg-slate-900 border border-slate-800 w-full max-w-xl rounded-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
             <div className="flex items-center gap-2.5">

@@ -7,6 +7,7 @@ import { isReportDeliveryAllowed, getReportFinalLabel } from '../../utils/report
 import { exportAuditPack } from '../../utils/auditPack';
 import { StorageService } from '../../services/storage';
 import { formatDateTime } from '../../utils/formatters';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 interface ReportViewModalProps {
   isOpen: boolean;
@@ -46,6 +47,8 @@ export const ReportViewModal: React.FC<ReportViewModalProps> = ({
   useEffect(() => {
     setLocalJob(job);
   }, [job]);
+
+  useBodyScrollLock(isOpen);
 
   const persist = (next: Job) => {
     StorageService.updateJob(next);
@@ -311,15 +314,17 @@ export const ReportViewModal: React.FC<ReportViewModalProps> = ({
             <button
               type="button"
               onClick={handleMarkDelivered}
-              disabled={!canMarkDelivered}
+              disabled={!canMarkDelivered || Boolean(localJob.delivery?.deliveredAt)}
               className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs border active:scale-95 transition-all ${
-                canMarkDelivered
+                localJob.delivery?.deliveredAt
+                  ? 'bg-emerald-600/15 text-emerald-300 border-emerald-500/40 cursor-default'
+                  : canMarkDelivered
                   ? 'bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border-sky-500/40'
                   : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed opacity-60'
               }`}
             >
               <Send className="w-3.5 h-3.5" />
-              Mark delivered
+              {localJob.delivery?.deliveredAt ? 'Delivered' : 'Mark delivered'}
             </button>
             {canExportPack && (
               <button

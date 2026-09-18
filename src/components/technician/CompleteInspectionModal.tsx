@@ -8,6 +8,7 @@ import {
   calculateOverallResult
 } from '../../utils/validation';
 import { SignaturePad } from '../common/SignaturePad';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 export type CompleteModalMode = 'l1_submit' | 'supervisor_complete' | 'lead_complete';
 
@@ -40,6 +41,8 @@ export const CompleteInspectionModal: React.FC<CompleteInspectionModalProps> = (
         : 'All examinations carried out in strict accordance with the approved test procedure. Results recorded as observed.'
     )
   );
+
+  useBodyScrollLock(isOpen);
 
   if (!isOpen) return null;
 
@@ -118,7 +121,7 @@ export const CompleteInspectionModal: React.FC<CompleteInspectionModalProps> = (
   const isFail = previewOverall === 'FAIL';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/85 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/85 backdrop-blur-sm p-0 sm:p-4 overflow-hidden">
       <div className="bg-slate-900 border border-slate-800 w-full sm:max-w-xl rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
 
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">

@@ -1,4 +1,5 @@
 import { Job, Inspector, Equipment, OverallResult, NdtMethod, InspectionItem, FindingsRevisionSnapshot, JobViewerRole, JobStatus, AcceptanceCriterion, NdtProcedure, ConstraintFlag, ProcedureEquipmentSlot, MethodCertificate } from '../types';
+import { validateVisionAuthorization } from './visionAuthorization';
 
 export type ExpiryStatus = 'valid' | 'expiring_soon' | 'expired';
 
@@ -170,13 +171,14 @@ export function isAssignedSupervisor(job: Job, viewerInspectorId?: string): bool
 
 export function canEditFindings(viewerRole: JobViewerRole, status: JobStatus, isL1LeadJob: boolean): boolean {
   if (status === 'Completed' || status === 'Awaiting Supervisor') return false;
+  // Findings only after Start work (In Progress) or when revising
+  const fieldOpen = status === 'In Progress' || status === 'Revision Required';
+  if (!fieldOpen) return false;
   if (!isL1LeadJob) {
     // Admin orchestrates only — does not edit field findings in the demo cockpit
     return viewerRole === 'lead_l2_plus';
   }
-  return viewerRole === 'lead_l1' && (
-    status === 'Draft' || status === 'Assigned' || status === 'In Progress' || status === 'Revision Required'
-  );
+  return viewerRole === 'lead_l1';
 }
 
 export function canEvaluateItems(viewerRole: JobViewerRole, status: JobStatus, isAssignedSup: boolean): boolean {
@@ -189,7 +191,13 @@ export function canRejectToL1(viewerRole: JobViewerRole, status: JobStatus, isAs
 
 export function canSubmitAsL1(viewerRole: JobViewerRole, status: JobStatus, isL1LeadJob: boolean): boolean {
   if (!isL1LeadJob || viewerRole !== 'lead_l1') return false;
-  return status === 'Draft' || status === 'Assigned' || status === 'In Progress' || status === 'Revision Required';
+  return status === 'In Progress' || status === 'Revision Required';
+}
+
+/** Lead may start Assigned work → In Progress (Domain Freeze). */
+export function canStartWork(viewerRole: JobViewerRole, status: JobStatus): boolean {
+  if (status !== 'Assigned') return false;
+  return viewerRole === 'lead_l1' || viewerRole === 'lead_l2_plus';
 }
 
 export interface EligibilityResult {
@@ -205,6 +213,18 @@ export function validateInspectorEligibility(
   inspector: Inspector,
   method: NdtMethod
 ): EligibilityResult {
+  const visionGate = validateVisionAuthorization(inspector);
+  if (visionGate.blocked) {
+    return {
+      eligible: false,
+      blocked: true,
+      warning: false,
+      reason: visionGate.reason,
+      certStatus: visionGate.visionStatus === 'missing' ? 'expired' : (visionGate.visionStatus === 'expiring_soon' ? 'expiring_soon' : visionGate.visionStatus === 'valid' ? 'valid' : 'expired'),
+      methodMatch: Boolean(getMethodCertificate(inspector, method) || inspector.methods.includes(method))
+    };
+  }
+
   const methodCerts = inspector.methodCertificates;
   const useMethodCerts = methodCerts && methodCerts.length > 0;
 
@@ -255,13 +275,17 @@ export function validateInspectorEligibility(
         methodMatch: true
       };
     }
-    if (certCheck.status === 'expiring_soon') {
+    if (certCheck.status === 'expiring_soon' || visionGate.warning) {
+      const parts = [
+        certCheck.status === 'expiring_soon' ? `${method} ${mc.level} cert expiring soon (${certCheck.formattedText})` : null,
+        visionGate.warning ? visionGate.reason : null
+      ].filter(Boolean);
       return {
         eligible: true,
         blocked: false,
         warning: true,
-        reason: `${method} ${mc.level} cert expiring soon (${certCheck.formattedText}) — plan renewal`,
-        certStatus: 'expiring_soon',
+        reason: parts.join(' · ') || `Qualified ${method} ${mc.level}`,
+        certStatus: certCheck.status === 'expiring_soon' ? 'expiring_soon' : 'valid',
         methodMatch: true
       };
     }
@@ -301,13 +325,17 @@ export function validateInspectorEligibility(
     };
   }
 
-  if (certCheck.status === 'expiring_soon') {
+  if (certCheck.status === 'expiring_soon' || visionGate.warning) {
+    const parts = [
+      certCheck.status === 'expiring_soon' ? `Cert expiring soon (${certCheck.formattedText})` : null,
+      visionGate.warning ? visionGate.reason : null
+    ].filter(Boolean);
     return {
       eligible: true,
       blocked: false,
       warning: true,
-      reason: `Cert expiring soon (${certCheck.formattedText}) — plan renewal`,
-      certStatus: 'expiring_soon',
+      reason: parts.join(' · ') || 'Qualified',
+      certStatus: certCheck.status === 'expiring_soon' ? 'expiring_soon' : 'valid',
       methodMatch: true
     };
   }
@@ -477,6 +505,28 @@ function pushEquipmentWarnings(equipmentList: Equipment[] | undefined, warnings:
   });
 }
 
+/**
+ * Field examination conditions (as-found) required before L1 submit / field complete.
+ * Scope is work-order; surface + measured °C + light (VT/MT) are field-owned per pack.
+ */
+export function pushExaminationConditionErrors(job: Job, errors: string[]) {
+  if (!job.scope?.trim()) {
+    errors.push('Scope of examination must be recorded on the work order before the report can be signed.');
+  }
+  if (!job.surfaceCondition?.trim()) {
+    errors.push('As-found surface condition must be recorded on site before the report can be signed.');
+  }
+  const tempC = parseTemperatureC(job.temperature, job.temperatureC);
+  if (tempC === null) {
+    errors.push('Measured temperature (°C) must be recorded on site before the report can be signed.');
+  }
+  if ((job.method === 'VT' || job.method === 'MT') && !job.ambientLight?.trim()) {
+    errors.push(
+      `Ambient light must be recorded for ${job.method} examinations before the report can be signed.`
+    );
+  }
+}
+
 export function validateJobForL1Submit(
   job: Job,
   inspector?: Inspector,
@@ -503,6 +553,8 @@ export function validateJobForL1Submit(
   if (!job.signatureDataUrl) {
     errors.push('Your signature is required to submit findings to the supervising inspector.');
   }
+
+  pushExaminationConditionErrors(job, errors);
 
   if (inspector && !isLevel1ForMethod(inspector, job.method)) {
     errors.push(`Only ${job.method} Level 1 technicians use the submit-to-supervisor path.`);
@@ -574,6 +626,8 @@ export function validateJobForSupervisorComplete(
     errors.push('Supervisor signature is required to complete and lock this inspection.');
   }
 
+  pushExaminationConditionErrors(job, errors);
+
   if (supervisor) {
     const elig = validateSupervisorEligibility(supervisor, job.method);
     if (elig.blocked) {
@@ -621,6 +675,8 @@ export function validateJobForCompletion(
   if (!job.signatureDataUrl) {
     errors.push('Inspector signature is required to sign off and lock the inspection.');
   }
+
+  pushExaminationConditionErrors(job, errors);
 
   if (inspector) {
     const levelCheck = validateLevelCompliance(inspector, supervisor, job.method);

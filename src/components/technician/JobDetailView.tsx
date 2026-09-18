@@ -2,18 +2,19 @@ import React, { useState } from 'react';
 import { 
   ArrowLeft, Plus, CheckCircle2, XCircle, MinusCircle, Camera, 
   AlertTriangle, ShieldCheck, FileText, Lock, Trash2, Calendar, MapPin, 
-  Building, Wrench, FileCheck, Share2, Award, History, Clock, X
+  Building, Wrench, FileCheck, Share2, Award, History, Clock, X, Edit3, Play
 } from 'lucide-react';
 import { Job, Customer, Inspector, Equipment, InspectionItem, CompanySettings, AuditEntry, UserRole, JobViewerRole } from '../../types';
 import { Badge } from '../common/Badge';
 import { formatDate, formatDateTime } from '../../utils/formatters';
-import { checkExpiry, calculateOverallResult, isItemEvaluated, canEditFindings, canEvaluateItems, canRejectToL1, canSubmitAsL1, isAssignedSupervisor, snapshotFindingsRevision, resetItemEvaluations, validateSupervisorReject, clearL3CertificationFields, clearFieldCompletionFields, isL3Certified, canReopenJob, compareJobTempToProcedure, isLevel1ForMethod, getMethodCertificate } from '../../utils/validation';
+import { checkExpiry, calculateOverallResult, isItemEvaluated, canEditFindings, canEvaluateItems, canRejectToL1, canSubmitAsL1, canStartWork, isAssignedSupervisor, snapshotFindingsRevision, resetItemEvaluations, validateSupervisorReject, clearL3CertificationFields, clearFieldCompletionFields, isL3Certified, canReopenJob, compareJobTempToProcedure, isLevel1ForMethod, getMethodCertificate } from '../../utils/validation';
 import { ensureProcedureSnapshotOnJob, getJobProcedureView, replaceProcedureSnapshot } from '../../utils/procedureSnapshot';
 import { InspectionItemModal } from './InspectionItemModal';
 import { CompleteInspectionModal, CompleteModalMode } from './CompleteInspectionModal';
 import { ReportViewModal } from '../reports/ReportViewModal';
 import { Level3ReviewModal } from '../verifier/Level3ReviewModal';
 import { StorageService } from '../../services/storage';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 interface JobDetailViewProps {
   job: Job;
@@ -27,6 +28,8 @@ interface JobDetailViewProps {
   viewerInspectorId?: string;
   onBack: () => void;
   onJobUpdated: (updatedJob: Job) => void;
+  /** Admin: open job wizard from cockpit (Draft / Assigned) */
+  onEditJob?: () => void;
 }
 
 function resolveViewerRole(
@@ -54,7 +57,8 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
   userRole = 'technician',
   viewerInspectorId,
   onBack,
-  onJobUpdated
+  onJobUpdated,
+  onEditJob
 }) => {
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InspectionItem | undefined>(undefined);
@@ -68,6 +72,8 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
   const [rejectReason, setRejectReason] = useState('');
   const [reopenReason, setReopenReason] = useState('');
   const [isReopenModalOpen, setIsReopenModalOpen] = useState(false);
+
+  useBodyScrollLock(Boolean(lightboxPhoto) || isReopenModalOpen || isRejectModalOpen);
 
   const site = customer?.sites.find(s => s.id === job.siteId);
   const isCompleted = job.status === 'Completed';
@@ -84,6 +90,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
   const allowEvaluate = evaluateOnly;
   const allowReject = canRejectToL1(viewerRole, job.status, assignedSup);
   const allowSubmitL1 = canSubmitAsL1(viewerRole, job.status, isL1LeadJob);
+  const allowStartWork = canStartWork(viewerRole, job.status);
   const allowCompleteSupervised = allowEvaluate;
   const allowCompleteIndependent =
     !isL1LeadJob &&
@@ -96,6 +103,15 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
   const canViewItemDetail = canOpenItemModal || userRole === 'l3_verifier' || userRole === 'admin';
   const itemModalViewOnly = canViewItemDetail && !canOpenItemModal;
   const canAddItems = allowEditFindings;
+  /** Field as-found: lead L1 / lead L2+ / Admin only — never supervisor silent rewrite */
+  const canEditExamConditions =
+    !isCompleted &&
+    !isAwaitingSupervisor &&
+    !isL3Approved &&
+    (viewerRole === 'admin' || viewerRole === 'lead_l1' || viewerRole === 'lead_l2_plus') &&
+    (job.status === 'In Progress' ||
+      job.status === 'Revision Required' ||
+      (viewerRole === 'admin' && (job.status === 'Assigned' || job.status === 'Draft')));
 
   const completeMode: CompleteModalMode = allowSubmitL1
     ? 'l1_submit'
@@ -507,6 +523,26 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
     return `Weld ${String(job.items.length + 1).padStart(3, '0')}`;
   };
 
+  const handleStartWork = () => {
+    if (!allowStartWork) return;
+    const auditEntry: AuditEntry = {
+      id: 'aud-' + Date.now(),
+      timestamp: new Date().toISOString(),
+      actorName: inspector?.fullName || 'Field Inspector',
+      actorRole: 'Inspector',
+      action: 'JOB_STARTED',
+      details: `Lead started field work on ${job.jobNumber} — status Assigned → In Progress.`
+    };
+    let updatedJob: Job = {
+      ...job,
+      status: 'In Progress',
+      auditTrail: [...(job.auditTrail || []), auditEntry]
+    };
+    updatedJob = ensureProcedureSnapshotOnJob(updatedJob, StorageService.getProcedures(), 'start');
+    StorageService.updateJob(updatedJob);
+    onJobUpdated(updatedJob);
+  };
+
   return (
     <div className="max-w-4xl mx-auto pb-24 px-3 sm:px-6">
       
@@ -520,7 +556,17 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
           <span>Back to List</span>
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {userRole === 'admin' && onEditJob && (job.status === 'Draft' || job.status === 'Assigned') && (
+            <button
+              type="button"
+              onClick={onEditJob}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600/20 border border-sky-500/40 text-sky-300 text-xs font-bold hover:bg-sky-600/30"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              {job.status === 'Draft' ? 'Continue setup' : 'Edit job'}
+            </button>
+          )}
           <Badge variant="status" value={job.status} size="sm">
             {job.status}
           </Badge>
@@ -665,13 +711,92 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
           </div>
         </div>
 
-        {/* Scope snippet */}
-        {job.scope && (
-          <div className="mt-3 pt-3 border-t border-slate-800/60 text-xs text-slate-300">
-            <strong className="text-slate-400 font-semibold">Scope: </strong>
-            {job.scope}
+        {/* Scope + examination conditions (field as-found) */}
+        <div className="mt-3 pt-3 border-t border-slate-800/60 space-y-3">
+          <div className="text-xs text-slate-300">
+            <strong className="text-slate-400 font-semibold">Scope (work order): </strong>
+            {job.scope?.trim() || <span className="text-rose-400">Not recorded</span>}
           </div>
-        )}
+          {job.surfacePrepInstruction?.trim() && (
+            <div className="text-xs text-slate-400">
+              <strong className="font-semibold">Prep instruction: </strong>
+              {job.surfacePrepInstruction}
+            </div>
+          )}
+          {(procedureSnapshot?.temperature || linkedProcedure?.temperature) && (
+            <div className="text-[11px] text-cyan-300/90">
+              WEP temperature limit: {procedureSnapshot?.temperature || linkedProcedure?.temperature}
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+              <span className="text-slate-400 block mb-1">As-found surface</span>
+              <span className="font-semibold text-slate-200 block">
+                {job.surfaceCondition?.trim() || <span className="text-rose-400 font-normal">Not recorded</span>}
+              </span>
+            </div>
+            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+              <span className="text-slate-400 block mb-1">Measured temp</span>
+              <span className="font-semibold text-slate-200 block">
+                {job.temperatureC !== undefined && Number.isFinite(job.temperatureC)
+                  ? `${job.temperatureC}°C`
+                  : job.temperature?.trim() || (
+                      <span className="text-rose-400 font-normal">Not recorded</span>
+                    )}
+              </span>
+            </div>
+            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+              <span className="text-slate-400 block mb-1">
+                Ambient light{(job.method === 'VT' || job.method === 'MT') ? ' *' : ''}
+              </span>
+              <span className="font-semibold text-slate-200 block">
+                {job.ambientLight?.trim() || (
+                  <span className={`font-normal ${job.method === 'VT' || job.method === 'MT' ? 'text-rose-400' : 'text-slate-500'}`}>
+                    {job.method === 'VT' || job.method === 'MT' ? 'Not recorded' : '—'}
+                  </span>
+                )}
+              </span>
+            </div>
+          </div>
+          {canEditExamConditions && (
+            <ExaminationConditionsEditor
+              job={job}
+              wepTempHint={procedureSnapshot?.temperature || linkedProcedure?.temperature}
+              onSave={(patch) => {
+                const updated: Job = {
+                  ...job,
+                  scope: patch.scope,
+                  surfaceCondition: patch.surfaceCondition,
+                  temperatureC: patch.temperatureC,
+                  temperature: `${patch.temperatureC}°C`,
+                  ambientLight: patch.ambientLight || undefined,
+                  updatedAt: new Date().toISOString(),
+                  auditTrail: [
+                    ...(job.auditTrail || []),
+                    {
+                      id: 'aud-' + Date.now(),
+                      timestamp: new Date().toISOString(),
+                      actorName: inspector?.fullName || 'User',
+                      actorRole: viewerRole === 'admin' ? 'Admin' : 'Inspector',
+                      action: 'EXAM_CONDITIONS_UPDATED',
+                      details: 'Updated field examination conditions (as-found surface / °C / light).'
+                    }
+                  ]
+                };
+                StorageService.updateJob(updated);
+                onJobUpdated(updated);
+              }}
+            />
+          )}
+          {!canEditExamConditions &&
+            (job.status === 'Assigned' || job.status === 'In Progress' || job.status === 'Revision Required') &&
+            (viewerRole === 'lead_l1' || viewerRole === 'lead_l2_plus') &&
+            job.status === 'Assigned' && (
+              <p className="text-[11px] text-amber-300/90">
+                Start work to record as-found surface, measured °C, and light on site.
+              </p>
+            )}
+        </div>
 
         <div className="mt-3 flex flex-wrap gap-2 items-center">
           {job.procedureNumber || job.procedureId || procedureSnapshot ? (
@@ -746,6 +871,34 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
 
       {/* Inspection Items Section */}
       <div className="space-y-3">
+        {job.status === 'Assigned' && (
+          <div className="p-4 rounded-xl bg-sky-950/40 border border-sky-500/40 space-y-3">
+            <div className="flex items-start gap-2">
+              <Play className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-bold text-sky-100">Assigned — start work to capture findings</p>
+                <p className="text-xs text-sky-200/80 mt-0.5">
+                  Domain rule: field readings begin only after the lead starts the job (Assigned → In Progress).
+                </p>
+              </div>
+            </div>
+            {allowStartWork ? (
+              <button
+                type="button"
+                onClick={handleStartWork}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm shadow-lg shadow-sky-600/25"
+              >
+                <Play className="w-4 h-4" />
+                Start work
+              </button>
+            ) : (
+              <p className="text-xs text-slate-400">
+                Only the assigned lead can start this job. Switch to the lead persona (demo), or open as Admin to edit assignment.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-base sm:text-lg font-extrabold text-white flex items-center gap-2">
@@ -755,7 +908,9 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
               </span>
             </h2>
             <p className="text-xs text-slate-400">
-              {isL1LeadJob && allowEditFindings
+              {job.status === 'Assigned'
+                ? 'Start work before adding inspection points'
+                : isL1LeadJob && allowEditFindings
                 ? 'Record readings and indications — supervisor will evaluate Pass/Fail'
                 : isAwaitingSupervisor
                 ? 'Findings locked — assigned supervisor evaluates Pass / Fail / N/A only'
@@ -1332,6 +1487,149 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
         onJobUpdated={onJobUpdated}
       />
 
+    </div>
+  );
+};
+
+type ExamConditionsPatch = {
+  scope: string;
+  surfaceCondition: string;
+  temperatureC: number;
+  ambientLight: string;
+};
+
+const ExaminationConditionsEditor: React.FC<{
+  job: Job;
+  wepTempHint?: string;
+  onSave: (patch: ExamConditionsPatch) => void;
+}> = ({ job, wepTempHint, onSave }) => {
+  const [open, setOpen] = useState(false);
+  const [scope, setScope] = useState(job.scope || '');
+  const [surfaceCondition, setSurfaceCondition] = useState(job.surfaceCondition || '');
+  const [tempInput, setTempInput] = useState(
+    job.temperatureC !== undefined && Number.isFinite(job.temperatureC)
+      ? String(job.temperatureC)
+      : ''
+  );
+  const [ambientLight, setAmbientLight] = useState(job.ambientLight || '');
+  const lightRequired = job.method === 'VT' || job.method === 'MT';
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setScope(job.scope || '');
+          setSurfaceCondition(job.surfaceCondition || '');
+          setTempInput(
+            job.temperatureC !== undefined && Number.isFinite(job.temperatureC)
+              ? String(job.temperatureC)
+              : ''
+          );
+          setAmbientLight(job.ambientLight || '');
+          setOpen(true);
+        }}
+        className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sky-400 hover:text-sky-300"
+      >
+        <Edit3 className="w-3.5 h-3.5" />
+        Record / edit as-found conditions
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-sky-500/30 bg-sky-950/20 p-3 space-y-2.5">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-sky-300">
+        As-found examination conditions
+      </p>
+      {wepTempHint && (
+        <p className="text-[10px] text-cyan-300/80">WEP allowed range: {wepTempHint}</p>
+      )}
+      <div>
+        <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Scope refine (optional)</label>
+        <input
+          type="text"
+          value={scope}
+          onChange={e => setScope(e.target.value)}
+          className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500"
+        />
+      </div>
+      <div>
+        <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">As-found surface *</label>
+        <input
+          type="text"
+          value={surfaceCondition}
+          onChange={e => setSurfaceCondition(e.target.value)}
+          placeholder="e.g. Wire brushed & solvent degreased"
+          className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500"
+        />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div>
+          <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">
+            Measured temperature (°C) *
+          </label>
+          <div className="flex items-stretch rounded-lg border border-slate-700 bg-slate-950 overflow-hidden focus-within:border-sky-500">
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.1"
+              value={tempInput}
+              onChange={e => setTempInput(e.target.value)}
+              placeholder="21"
+              className="w-full px-3 py-2 bg-transparent text-white text-sm focus:outline-none"
+            />
+            <span className="px-3 flex items-center text-xs font-bold text-slate-400 border-l border-slate-700 bg-slate-900/80">
+              °C
+            </span>
+          </div>
+        </div>
+        <div>
+          <label className="block text-[10px] font-semibold uppercase text-slate-400 mb-1">
+            Ambient light{lightRequired ? ' *' : ' (optional)'}
+          </label>
+          <input
+            type="text"
+            value={ambientLight}
+            onChange={e => setAmbientLight(e.target.value)}
+            placeholder={lightRequired ? 'e.g. 1200 Lux' : 'Optional'}
+            className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500"
+          />
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 text-xs font-semibold"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const n = parseFloat(tempInput);
+            if (!scope.trim() || !surfaceCondition.trim() || !Number.isFinite(n)) {
+              alert('Scope, as-found surface, and measured temperature (°C) are required.');
+              return;
+            }
+            if (lightRequired && !ambientLight.trim()) {
+              alert(`Ambient light is required for ${job.method} examinations.`);
+              return;
+            }
+            onSave({
+              scope: scope.trim(),
+              surfaceCondition: surfaceCondition.trim(),
+              temperatureC: n,
+              ambientLight: ambientLight.trim()
+            });
+            setOpen(false);
+          }}
+          className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold"
+        >
+          Save conditions
+        </button>
+      </div>
     </div>
   );
 };

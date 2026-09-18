@@ -29,16 +29,7 @@ export async function generateNDTPdfReport(
     ? `${job.procedureSnapshot.procedureNumber} ${job.procedureSnapshot.revisionNumber} (frozen)`
     : (job.procedureNumber || null);
 
-  // Draft watermark when not L3-certified
-  if (!isL3Approved) {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(42);
-    doc.setTextColor(226, 232, 240);
-    doc.text('DRAFT — PENDING L3', pageWidth / 2, pageHeight / 2, {
-      align: 'center',
-      angle: 35
-    });
-  }
+  // Watermark is applied on every page at the end (over content, with opacity)
 
   // -------------------------------------------------------------
   // 1. TOP HEADER SECTION (Structured 2-Column Corporate Letterhead)
@@ -108,208 +99,169 @@ export async function generateNDTPdfReport(
 
   // -------------------------------------------------------------
   // 2. METADATA CARDS: CLIENT vs TEST SPECIFICATION & APPARATUS
+  // Dynamic height so apparatus + supervisor are never cropped
   // -------------------------------------------------------------
-  const cardWidth = (contentWidth - 4) / 2; // 91mm each
-  const cardHeight = 44;
-
-  // --- CARD 1: CLIENT & SITE DETAILS ---
-  doc.setDrawColor(203, 213, 225);
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(margin, currentY, cardWidth, cardHeight, 1.5, 1.5, 'FD');
-
-  // Title Header
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(15, 23, 42);
-  doc.text('CLIENT & SITE INFORMATION', margin + 4, currentY + 5.5);
-  doc.setDrawColor(226, 232, 240);
-  doc.line(margin + 4, currentY + 7.5, margin + cardWidth - 4, currentY + 7.5);
-
+  const cardWidth = (contentWidth - 4) / 2;
   const clientLabelsX = margin + 4;
   const clientValuesX = margin + 24;
   const clientValWidth = cardWidth - 28;
-
-  let rowY = currentY + 12;
-  
-  // Client Name
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.setTextColor(71, 85, 105);
-  doc.text('Customer:', clientLabelsX, rowY);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  const custSplit = doc.splitTextToSize(customer?.companyName || 'N/A', clientValWidth);
-  doc.text(custSplit, clientValuesX, rowY);
-  rowY += Math.max(custSplit.length * 3.5, 6);
-
-  // Site / Plant
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(71, 85, 105);
-  doc.text('Site / Plant:', clientLabelsX, rowY);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(15, 23, 42);
-  const siteSplit = doc.splitTextToSize(site?.name || 'On Site', clientValWidth);
-  doc.text(siteSplit, clientValuesX, rowY);
-  rowY += Math.max(siteSplit.length * 3.5, 6);
-
-  // Site Address
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(71, 85, 105);
-  doc.text('Address:', clientLabelsX, rowY);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(15, 23, 42);
-  const addrSplit = doc.splitTextToSize(site?.address || customer?.notes || 'Johannesburg, South Africa', clientValWidth);
-  doc.text(addrSplit, clientValuesX, rowY);
-  rowY += Math.max(addrSplit.length * 3.2, 5.5);
-
-  // Contact
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(71, 85, 105);
-  doc.text('Contact:', clientLabelsX, rowY);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(15, 23, 42);
-  doc.text(`${customer?.contactPerson || 'Johan van der Merwe'} (${customer?.phone || '+27 82 450 9182'})`, clientValuesX, rowY);
-
-  // --- CARD 2: TEST SPECIFICATION & APPARATUS (HIGH CONTRAST) ---
   const card2X = margin + cardWidth + 4;
-  doc.setDrawColor(203, 213, 225);
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(card2X, currentY, cardWidth, cardHeight, 1.5, 1.5, 'FD');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(15, 23, 42);
-  doc.text('TEST SPECIFICATION & APPARATUS', card2X + 4, currentY + 5.5);
-  doc.setDrawColor(226, 232, 240);
-  doc.line(card2X + 4, currentY + 7.5, card2X + cardWidth - 4, currentY + 7.5);
-
   const specLabelsX = card2X + 4;
   const specValuesX = card2X + 28;
   const specValWidth = cardWidth - 32;
+  const lineH = 3.5;
 
-  let row2Y = currentY + 12;
+  const measureWrapped = (text: string, maxW: number) => {
+    const lines = doc.splitTextToSize(text || '—', maxW);
+    return { lines, h: Math.max(lines.length * lineH, 5.5) };
+  };
 
-  // NDT Method
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.setTextColor(71, 85, 105);
-  doc.text('NDT Method:', specLabelsX, row2Y);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(2, 132, 199); // Sky Blue Highlight
-  doc.text(`${job.method} — ${getMethodFullName(job.method)}`, specValuesX, row2Y);
-  row2Y += 6;
+  type MetaRow = { label: string; value: string; boldValue?: boolean; sky?: boolean; emerald?: boolean };
+  const clientRows: MetaRow[] = [
+    { label: 'Customer:', value: customer?.companyName || 'N/A', boldValue: true },
+    { label: 'Site / Plant:', value: site?.name || 'On Site' },
+    { label: 'Address:', value: site?.address || customer?.notes || '—' },
+    {
+      label: 'Contact:',
+      value: `${customer?.contactPerson || '—'} (${customer?.phone || '—'})`
+    }
+  ];
 
-  // Standard / Specification
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(71, 85, 105);
-  doc.text('Test Spec:', specLabelsX, row2Y);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  const specSplit = doc.splitTextToSize(job.standardSpec || 'ASME Section V / SANS 17020', specValWidth);
-  doc.text(specSplit, specValuesX, row2Y);
-  row2Y += Math.max(specSplit.length * 3.5, 6);
-
-  if (wepLabel) {
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(71, 85, 105);
-    doc.text('WEP:', specLabelsX, row2Y);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(15, 23, 42);
-    const wepSplit = doc.splitTextToSize(wepLabel, specValWidth);
-    doc.text(wepSplit, specValuesX, row2Y);
-    row2Y += Math.max(wepSplit.length * 3.5, 6);
-  }
-
-  // Lead Inspector
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(71, 85, 105);
-  doc.text('Inspector:', specLabelsX, row2Y);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(15, 23, 42);
-  doc.text(`${inspector?.fullName || 'Certified Tech'} (${inspector?.certNumber || 'SAQCC Level 2'})`, specValuesX, row2Y);
-  row2Y += 6;
-
-  // Equipment & Calibration
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(71, 85, 105);
-  doc.text('Apparatus:', specLabelsX, row2Y);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(15, 23, 42);
-  const apparatus = (equipmentList && equipmentList.length > 0)
-    ? equipmentList.map(e => `${e.name} [${e.serialNumber}]`).join('; ')
-    : 'No apparatus recorded';
-  const eqSplit = doc.splitTextToSize(apparatus, specValWidth);
-  doc.text(eqSplit, specValuesX, row2Y);
-  row2Y += Math.max(eqSplit.length * 3.2, 5.5);
-
-  // Calibration Expiry (earliest expiry among linked equipment)
+  const apparatus =
+    equipmentList && equipmentList.length > 0
+      ? equipmentList.map(e => `${e.name} [${e.serialNumber}]`).join('; ')
+      : 'No apparatus recorded';
   const earliestCal = (equipmentList || []).reduce<string | undefined>((min, e) => {
     if (!e.calibrationExpiryDate) return min;
     if (!min || e.calibrationExpiryDate < min) return e.calibrationExpiryDate;
     return min;
   }, undefined);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(71, 85, 105);
-  doc.text('Cal. Valid:', specLabelsX, row2Y);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(5, 150, 105); // Emerald green for valid cal
-  doc.text(
-    earliestCal ? `Valid until ${formatDate(earliestCal)}` : 'Not recorded',
-    specValuesX,
-    row2Y
-  );
 
-  if (supervisor && job.supervisorSignatureDataUrl) {
-    row2Y += 6;
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(71, 85, 105);
-    doc.text('Supervisor:', specLabelsX, row2Y);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(15, 23, 42);
-    doc.text(`${supervisor.fullName} (${supervisor.certNumber})`, specValuesX, row2Y);
+  const specRows: MetaRow[] = [
+    {
+      label: 'NDT Method:',
+      value: `${job.method} — ${getMethodFullName(job.method)}`,
+      boldValue: true,
+      sky: true
+    },
+    { label: 'Test Spec:', value: job.standardSpec || '—', boldValue: true },
+  ];
+  if (wepLabel) specRows.push({ label: 'WEP:', value: wepLabel });
+  specRows.push({
+    label: 'Inspector:',
+    value: `${inspector?.fullName || '—'} (${inspector?.certNumber || '—'})`
+  });
+  specRows.push({ label: 'Apparatus:', value: apparatus });
+  specRows.push({
+    label: 'Cal. Valid:',
+    value: earliestCal ? `Valid until ${formatDate(earliestCal)}` : 'Not recorded',
+    emerald: Boolean(earliestCal)
+  });
+  if (supervisor) {
+    specRows.push({
+      label: 'Supervisor:',
+      value: `${supervisor.fullName} (${supervisor.certNumber || supervisor.level || '—'})`
+    });
   }
+
+  const measureCardBody = (rows: MetaRow[], valWidth: number) => {
+    let h = 10; // title band
+    rows.forEach(r => {
+      h += measureWrapped(r.value, valWidth).h;
+    });
+    return h + 4;
+  };
+
+  const cardHeight = Math.max(
+    measureCardBody(clientRows, clientValWidth),
+    measureCardBody(specRows, specValWidth),
+    40
+  ) + 3; // bottom inset so last row (e.g. Supervisor) is never clipped by the card edge
+
+  doc.setDrawColor(203, 213, 225);
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(margin, currentY, cardWidth, cardHeight, 1.5, 1.5, 'FD');
+  doc.roundedRect(card2X, currentY, cardWidth, cardHeight, 1.5, 1.5, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(15, 23, 42);
+  doc.text('CLIENT & SITE INFORMATION', margin + 4, currentY + 5.5);
+  doc.text('TEST SPECIFICATION & APPARATUS', card2X + 4, currentY + 5.5);
+  doc.setDrawColor(226, 232, 240);
+  doc.line(margin + 4, currentY + 7.5, margin + cardWidth - 4, currentY + 7.5);
+  doc.line(card2X + 4, currentY + 7.5, card2X + cardWidth - 4, currentY + 7.5);
+
+  const paintRows = (
+    rows: MetaRow[],
+    labelX: number,
+    valueX: number,
+    valWidth: number,
+    startY: number
+  ) => {
+    let y = startY;
+    rows.forEach(r => {
+      const { lines, h } = measureWrapped(r.value, valWidth);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(71, 85, 105);
+      doc.text(r.label, labelX, y);
+      doc.setFont('helvetica', r.boldValue ? 'bold' : 'normal');
+      if (r.sky) doc.setTextColor(2, 132, 199);
+      else if (r.emerald) doc.setTextColor(5, 150, 105);
+      else doc.setTextColor(15, 23, 42);
+      doc.text(lines, valueX, y);
+      y += h;
+    });
+  };
+
+  paintRows(clientRows, clientLabelsX, clientValuesX, clientValWidth, currentY + 12);
+  paintRows(specRows, specLabelsX, specValuesX, specValWidth, currentY + 12);
 
   currentY += cardHeight + 4;
 
   // -------------------------------------------------------------
-  // 3. SCOPE & TEST CONDITIONS BAR (3-Column Strip)
+  // 3. SCOPE & TEST CONDITIONS (dynamic height — no fake light)
   // -------------------------------------------------------------
+  const colW = (contentWidth - 6) / 3;
+  const scopeText = job.scope?.trim() || 'Not recorded on work order';
+  const surfaceText = job.surfaceCondition?.trim() || 'Not recorded';
+  const envParts: string[] = [];
+  const tempC =
+    typeof job.temperatureC === 'number' && Number.isFinite(job.temperatureC)
+      ? job.temperatureC
+      : null;
+  if (tempC !== null) envParts.push(`Temp: ${tempC}°C`);
+  else if (job.temperature?.trim()) envParts.push(`Temp: ${job.temperature.trim()}`);
+  if (job.ambientLight?.trim()) envParts.push(`Light: ${job.ambientLight.trim()}`);
+  const envText = envParts.length > 0 ? envParts.join('  |  ') : 'Temperature / light not recorded';
+
+  doc.setFontSize(6.5);
+  const scopeLines = doc.splitTextToSize(scopeText, colW - 4);
+  const surfaceLines = doc.splitTextToSize(surfaceText, colW - 4);
+  const envLines = doc.splitTextToSize(envText, colW - 4);
+  const condBodyH = Math.max(scopeLines.length, surfaceLines.length, envLines.length) * 3.2;
+  const condH = Math.max(16, 7 + condBodyH + 3);
+
   doc.setFillColor(241, 245, 249);
   doc.setDrawColor(203, 213, 225);
-  doc.roundedRect(margin, currentY, contentWidth, 14, 1.5, 1.5, 'FD');
+  doc.roundedRect(margin, currentY, contentWidth, condH, 1.5, 1.5, 'FD');
 
-  // Col 1: Scope
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  doc.setTextColor(71, 85, 105);
-  doc.text('Scope of Examination:', margin + 3, currentY + 4.5);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
-  doc.setTextColor(15, 23, 42);
-  const scopeWrap = doc.splitTextToSize(job.scope || 'Examination of welds & parent material.', 80);
-  doc.text(scopeWrap, margin + 3, currentY + 8.5);
+  const paintCondCol = (title: string, lines: string[], x: number) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(title, x, currentY + 4.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    doc.text(lines, x, currentY + 8.5);
+  };
 
-  // Col 2: Surface Preparation
-  const col2X = margin + 86;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  doc.setTextColor(71, 85, 105);
-  doc.text('Surface Condition:', col2X, currentY + 4.5);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(15, 23, 42);
-  doc.text(job.surfaceCondition || 'Wire brushed & solvent degreased', col2X, currentY + 8.5);
+  paintCondCol('Scope of Examination:', scopeLines, margin + 3);
+  paintCondCol('Surface Condition:', surfaceLines, margin + 3 + colW + 2);
+  paintCondCol('Environmental Conditions:', envLines, margin + 3 + (colW + 2) * 2);
 
-  // Col 3: Test Temperature & Light
-  const col3X = margin + 140;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  doc.setTextColor(71, 85, 105);
-  doc.text('Environmental Conditions:', col3X, currentY + 4.5);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(15, 23, 42);
-  doc.text(`Temp: ${job.temperature || '22°C'}  |  Light: > 1076 Lux`, col3X, currentY + 8.5);
-
-  currentY += 18;
+  currentY += condH + 4;
 
   // -------------------------------------------------------------
   // 4. RESULTS TABLE (Crisp autoTable Grid)
@@ -328,14 +280,15 @@ export async function generateNDTPdfReport(
       readingStr = `${item.methodDetails.thickness} mm`;
     }
 
-    const observationStr = item.indication || item.methodDetails?.indication || item.notes || 'Acceptable profile. No recordable flaws.';
+    const observationStr =
+      item.indication || item.methodDetails?.indication || item.notes || '—';
 
     return [
       (index + 1).toString(),
       item.itemNumber || `Item #${index + 1}`,
       item.description || '—',
       readingStr,
-      item.acceptanceCriteria || 'Spec standard',
+      item.acceptanceCriteria || '—',
       observationStr,
       item.result.toUpperCase()
     ];
@@ -344,42 +297,51 @@ export async function generateNDTPdfReport(
   autoTable(doc, {
     startY: currentY,
     head: [['#', 'Item / Weld ID', 'Description & Location', 'Reading', 'Acceptance Spec', 'Observation / Indication', 'Result']],
-    body: tableData,
+    body: tableData.length > 0 ? tableData : [['—', '—', 'No inspection items recorded', '—', '—', '—', 'PENDING']],
     margin: { left: margin, right: margin },
     theme: 'grid',
     headStyles: {
       fillColor: [15, 23, 42],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 7.5,
+      fontSize: 7,
       halign: 'left',
-      cellPadding: 2
-    },
-    styles: {
-      fontSize: 7.5,
-      textColor: [30, 41, 59],
-      cellPadding: 2,
+      cellPadding: 1.8,
       valign: 'middle'
     },
+    styles: {
+      fontSize: 7,
+      textColor: [30, 41, 59],
+      cellPadding: 1.8,
+      valign: 'top',
+      overflow: 'linebreak',
+      minCellHeight: 6
+    },
     columnStyles: {
-      0: { cellWidth: 7, halign: 'center' },
-      1: { cellWidth: 26, fontStyle: 'bold' },
-      2: { cellWidth: 42 },
-      3: { cellWidth: 20, halign: 'center', fontStyle: 'bold' },
-      4: { cellWidth: 32 },
-      5: { cellWidth: 39 },
-      6: { cellWidth: 20, halign: 'center', fontStyle: 'bold' }
+      0: { cellWidth: 7, halign: 'center', valign: 'middle' },
+      1: { cellWidth: 24, fontStyle: 'bold' },
+      2: { cellWidth: 38 },
+      3: { cellWidth: 18, halign: 'center', fontStyle: 'bold', valign: 'middle' },
+      4: { cellWidth: 36 },
+      5: { cellWidth: 40 },
+      6: { cellWidth: 18, halign: 'center', fontStyle: 'bold', valign: 'middle' }
     },
     didParseCell: (data) => {
       if (data.section === 'body' && data.column.index === 6) {
         const text = String(data.cell.raw).trim();
         if (text === 'PASS') {
-          data.cell.styles.textColor = [16, 185, 129]; // Emerald
+          data.cell.styles.textColor = [16, 185, 129];
         } else if (text === 'FAIL') {
-          data.cell.styles.textColor = [239, 68, 68]; // Crimson
+          data.cell.styles.textColor = [239, 68, 68];
         } else {
-          data.cell.styles.textColor = [100, 116, 139]; // Slate
+          data.cell.styles.textColor = [100, 116, 139];
         }
+      }
+      // Keep multi-line text columns consistent (same size / top align)
+      if (data.section === 'body' && [2, 4, 5].includes(data.column.index)) {
+        data.cell.styles.fontSize = 7;
+        data.cell.styles.valign = 'top';
+        data.cell.styles.overflow = 'linebreak';
       }
     }
   });
@@ -596,20 +558,41 @@ export async function generateNDTPdfReport(
   doc.text(`Reviewed: ${isL3Approved && job.l3ReviewedAt ? formatDateTime(job.l3ReviewedAt) : 'Pending Review'}`, l3BoxX + 3, afterTableY + 25);
 
   // -------------------------------------------------------------
-  // 8. PAGE FOOTER (All Pages)
+  // 8. PAGE FOOTER + DRAFT WATERMARK (all pages, over content)
   // -------------------------------------------------------------
   const totalPages = doc.getNumberOfPages();
   for (let p = 1; p <= totalPages; p++) {
     doc.setPage(p);
-    
+
+    if (!isL3Approved) {
+      doc.saveGraphicsState();
+      // @ts-expect-error jsPDF GState
+      doc.setGState(new doc.GState({ opacity: 0.18 }));
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(42);
+      doc.setTextColor(71, 85, 105);
+      // Tile across the page so draft marking covers report content, not only the centre
+      const marks = [
+        [pageWidth * 0.35, pageHeight * 0.28],
+        [pageWidth * 0.55, pageHeight * 0.5],
+        [pageWidth * 0.4, pageHeight * 0.72]
+      ] as const;
+      for (const [x, y] of marks) {
+        doc.text('DRAFT — PENDING L3', x, y, {
+          align: 'center',
+          angle: 32
+        });
+      }
+      doc.restoreGraphicsState();
+    }
+
     doc.setDrawColor(226, 232, 240);
     doc.line(margin, pageHeight - 11, pageWidth - margin, pageHeight - 11);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6);
     doc.setTextColor(148, 163, 184);
-    
-    // Left: Legal standard compliance
+
     doc.text(
       isL3Approved
         ? 'Prototype demo certificate — ISO 9712-shaped multi-sign workflow. Issued by ' + settings.companyName
@@ -618,7 +601,6 @@ export async function generateNDTPdfReport(
       pageHeight - 7
     );
 
-    // Right: Page count and report number
     doc.text(
       `Report: ${job.reportNumber || 'REP-PREVIEW'}  |  Page ${p} of ${totalPages}`,
       pageWidth - margin,

@@ -129,6 +129,12 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
+        <div className="px-0 pb-1.5">
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-2.5 py-1.5 text-[10px] sm:text-[11px] text-amber-200/90 font-medium leading-snug">
+            Demo role switcher — <span className="font-bold text-amber-100">not access control</span>. Backend auth will enforce the permissions matrix.
+          </div>
+        </div>
+
         {/* Demo persona chips + script */}
         <div className="pb-2.5 flex flex-wrap items-center gap-1.5 border-t border-slate-800/80 pt-2">
           <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">Demo as:</span>

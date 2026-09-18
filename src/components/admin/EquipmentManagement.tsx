@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Wrench, Plus, Edit3, X, CheckCircle2, History, RefreshCw, Search,
   ArrowLeft, ChevronRight, AlertTriangle, FileText, Upload
@@ -8,6 +8,8 @@ import { checkExpiry } from '../../utils/validation';
 import { formatDate, formatDateTime } from '../../utils/formatters';
 import { StorageService } from '../../services/storage';
 import { PLACEHOLDER_CAL_DOC } from '../../services/seedWorkshopRoster';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
+import { DateField } from '../common/DateField';
 
 const EQUIPMENT_CATEGORIES: NonNullable<Equipment['category']>[] = [
   'Ultrasonic',
@@ -22,15 +24,26 @@ interface EquipmentManagementProps {
   jobs: Job[];
   onEquipmentUpdated: () => void;
   onOpenJob?: (jobId: string) => void;
+  focusEquipmentId?: string | null;
+  onFocusConsumed?: () => void;
 }
 
 export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   equipment,
   jobs,
   onEquipmentUpdated,
-  onOpenJob
+  onOpenJob,
+  focusEquipmentId
 }) => {
-  const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null);
+  const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(
+    () => focusEquipmentId ?? null
+  );
+
+  useEffect(() => {
+    if (!focusEquipmentId) return;
+    setSelectedEquipmentId(focusEquipmentId);
+  }, [focusEquipmentId]);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEquipment, setEditingEquipment] = useState<Equipment | undefined>(undefined);
   const [isCalModalOpen, setIsCalModalOpen] = useState(false);
@@ -193,8 +206,10 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   const expiringSoonCount = equipment.filter(e => checkExpiry(e.calibrationExpiryDate).status === 'expiring_soon').length;
   const expiredCount = equipment.filter(e => checkExpiry(e.calibrationExpiryDate).status === 'expired').length;
 
+  useBodyScrollLock(isModalOpen || isCalModalOpen);
+
   const renderEditModal = () => isModalOpen && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-hidden">
       <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <h3 className="font-bold text-base text-white">{editingEquipment ? 'Edit Apparatus Record' : 'Register Inspection Apparatus'}</h3>
@@ -230,16 +245,18 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
               className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Calibration Date *</label>
-              <input type="date" value={calibrationDate} onChange={(e) => setCalibrationDate(e.target.value)} required
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Cal Expiry *</label>
-              <input type="date" value={calibrationExpiryDate} onChange={(e) => setCalibrationExpiryDate(e.target.value)} required
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500" />
-            </div>
+            <DateField
+              label="Calibration Date"
+              required
+              value={calibrationDate}
+              onChange={setCalibrationDate}
+            />
+            <DateField
+              label="Cal Expiry"
+              required
+              value={calibrationExpiryDate}
+              onChange={setCalibrationExpiryDate}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Notes</label>
@@ -256,7 +273,7 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   );
 
   const renderCalModal = () => isCalModalOpen && calTargetEquipment && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-hidden">
       <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div>
@@ -279,16 +296,18 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">New Cal Date *</label>
-              <input type="date" value={newCalDate} onChange={(e) => setNewCalDate(e.target.value)} required
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">New Expiry *</label>
-              <input type="date" value={newExpiryDate} onChange={(e) => setNewExpiryDate(e.target.value)} required
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-sky-500" />
-            </div>
+            <DateField
+              label="New Cal Date"
+              required
+              value={newCalDate}
+              onChange={setNewCalDate}
+            />
+            <DateField
+              label="New Expiry"
+              required
+              value={newExpiryDate}
+              onChange={setNewExpiryDate}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Reference Standard</label>

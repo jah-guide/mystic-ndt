@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
-  Briefcase, CheckCircle2, Clock, AlertTriangle, AlertCircle, 
-  Plus, Users, Wrench, FileText, ArrowUpRight, ShieldAlert, Sparkles 
+  Briefcase, CheckCircle2, Clock, AlertTriangle, 
+  Plus, Users, Wrench, ArrowUpRight, ShieldAlert, ChevronRight
 } from 'lucide-react';
 import { Job, Customer, Inspector, Equipment, CompanySettings, NdtProcedure } from '../../types';
 import { Badge } from '../common/Badge';
@@ -18,6 +18,8 @@ interface AdminDashboardProps {
   procedures: NdtProcedure[];
   settings: CompanySettings;
   onNavigateToTab: (tab: string) => void;
+  onOpenInspector: (id: string) => void;
+  onOpenEquipment: (id: string) => void;
   onOpenJobDetail: (job: Job) => void;
   onJobUpdated: (job: Job) => void;
 }
@@ -30,6 +32,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   procedures,
   settings,
   onNavigateToTab,
+  onOpenInspector,
+  onOpenEquipment,
   onOpenJobDetail,
   onJobUpdated
 }) => {
@@ -49,14 +53,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
   });
 
-  // Expiring inspector certs & equipment calibrations
+  // Expiring inspector certs & equipment calibrations (urgent first, capped for dashboard)
   const certWarnings = inspectors
     .map(i => ({ inspector: i, expiry: checkExpiry(i.certExpiryDate) }))
-    .filter(item => item.expiry.status !== 'valid');
+    .filter(item => item.expiry.status !== 'valid')
+    .sort((a, b) => (a.expiry.daysRemaining ?? 0) - (b.expiry.daysRemaining ?? 0));
 
   const calWarnings = equipment
     .map(e => ({ equipment: e, expiry: checkExpiry(e.calibrationExpiryDate) }))
-    .filter(item => item.expiry.status !== 'valid');
+    .filter(item => item.expiry.status !== 'valid')
+    .sort((a, b) => (a.expiry.daysRemaining ?? 0) - (b.expiry.daysRemaining ?? 0));
+
+  const ALERT_PREVIEW = 5;
+  const certPreview = certWarnings.slice(0, ALERT_PREVIEW);
+  const calPreview = calWarnings.slice(0, ALERT_PREVIEW);
 
   const recentJobs = [...jobs]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -163,68 +173,136 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       </div>
 
-      {/* Critical Warnings: Inspector Certification & Equipment Calibration Expiry */}
+      {/* Critical Warnings: People vs Equipment */}
       {(certWarnings.length > 0 || calWarnings.length > 0) && (
-        <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-4 sm:p-5 shadow-xl">
-          <div className="flex items-center gap-2 text-amber-400 font-extrabold text-sm mb-3">
-            <ShieldAlert className="w-5 h-5" />
-            <span>Compliance & Calibration Alerts</span>
+        <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-3 sm:p-4 shadow-xl">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2 text-amber-400 font-extrabold text-sm">
+              <ShieldAlert className="w-4 h-4 shrink-0" />
+              <span>Compliance alerts</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateToTab('renewals')}
+              className="text-[10px] font-bold text-sky-400 hover:text-sky-300 inline-flex items-center gap-0.5"
+            >
+              All renewals
+              <ArrowUpRight className="w-3 h-3" />
+            </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-            {/* Inspector Certifications */}
-            {certWarnings.map(({ inspector, expiry }) => (
-              <div 
-                key={inspector.id} 
-                onClick={() => onNavigateToTab('inspectors')}
-                className="bg-slate-950/80 p-3 rounded-xl border border-amber-500/30 flex items-center justify-between hover:bg-slate-950 transition-colors cursor-pointer"
-              >
-                <div>
-                  <div className="font-bold text-white flex items-center gap-2">
-                    <span>{inspector.fullName}</span>
-                    <span className="text-[10px] text-slate-400">({inspector.certNumber})</span>
-                  </div>
-                  <div className="text-slate-400 text-[11px] mt-0.5">
-                    Methods: {inspector.methods.join(', ')}
-                  </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* People */}
+            <div className="min-w-0 rounded-xl border border-slate-800 bg-slate-950/40 overflow-hidden">
+              <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-slate-800 bg-slate-950/60">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                  <Users className="w-3 h-3 text-sky-400" />
+                  People
                 </div>
-
-                <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
-                  expiry.status === 'expired'
-                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                    : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                }`}>
-                  {expiry.formattedText}
-                </span>
+                <span className="text-[10px] font-bold text-slate-500">{certWarnings.length}</span>
               </div>
-            ))}
+              {certWarnings.length === 0 ? (
+                <p className="text-[11px] text-slate-500 px-2.5 py-2">No cert alerts</p>
+              ) : (
+                <ul className="divide-y divide-slate-800/80">
+                  {certPreview.map(({ inspector, expiry }) => (
+                    <li key={inspector.id}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenInspector(inspector.id)}
+                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-slate-900 transition-colors group"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-white truncate group-hover:text-sky-300">
+                            {inspector.fullName}
+                          </div>
+                          <div className="text-[10px] text-slate-500 truncate font-mono">
+                            {inspector.certNumber}
+                          </div>
+                        </div>
+                        <span
+                          className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            expiry.status === 'expired'
+                              ? 'bg-rose-500/20 text-rose-400'
+                              : 'bg-amber-500/20 text-amber-400'
+                          }`}
+                        >
+                          {expiry.status === 'expired'
+                            ? `Exp. ${Math.abs(expiry.daysRemaining ?? 0)}d`
+                            : `${expiry.daysRemaining ?? 0}d`}
+                        </span>
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-sky-400 shrink-0" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {certWarnings.length > ALERT_PREVIEW && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToTab('renewals')}
+                  className="w-full text-[10px] font-bold text-sky-400 hover:bg-slate-900 px-2.5 py-1.5 border-t border-slate-800 text-left"
+                >
+                  +{certWarnings.length - ALERT_PREVIEW} more people → Renewals
+                </button>
+              )}
+            </div>
 
-            {/* Equipment Calibrations */}
-            {calWarnings.map(({ equipment, expiry }) => (
-              <div 
-                key={equipment.id} 
-                onClick={() => onNavigateToTab('equipment')}
-                className="bg-slate-950/80 p-3 rounded-xl border border-amber-500/30 flex items-center justify-between hover:bg-slate-950 transition-colors cursor-pointer"
-              >
-                <div>
-                  <div className="font-bold text-white flex items-center gap-2">
-                    <span>{equipment.name}</span>
-                    <span className="text-[10px] text-slate-400">[{equipment.serialNumber}]</span>
-                  </div>
-                  <div className="text-slate-400 text-[11px] mt-0.5">
-                    Type: {equipment.type}
-                  </div>
+            {/* Equipment */}
+            <div className="min-w-0 rounded-xl border border-slate-800 bg-slate-950/40 overflow-hidden">
+              <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-slate-800 bg-slate-950/60">
+                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                  <Wrench className="w-3 h-3 text-amber-400" />
+                  Equipment
                 </div>
-
-                <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
-                  expiry.status === 'expired'
-                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                    : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                }`}>
-                  {expiry.formattedText}
-                </span>
+                <span className="text-[10px] font-bold text-slate-500">{calWarnings.length}</span>
               </div>
-            ))}
+              {calWarnings.length === 0 ? (
+                <p className="text-[11px] text-slate-500 px-2.5 py-2">No cal alerts</p>
+              ) : (
+                <ul className="divide-y divide-slate-800/80">
+                  {calPreview.map(({ equipment: eq, expiry }) => (
+                    <li key={eq.id}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenEquipment(eq.id)}
+                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-slate-900 transition-colors group"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-white truncate group-hover:text-sky-300">
+                            {eq.name}
+                          </div>
+                          <div className="text-[10px] text-slate-500 truncate font-mono">
+                            {eq.serialNumber}
+                          </div>
+                        </div>
+                        <span
+                          className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            expiry.status === 'expired'
+                              ? 'bg-rose-500/20 text-rose-400'
+                              : 'bg-amber-500/20 text-amber-400'
+                          }`}
+                        >
+                          {expiry.status === 'expired'
+                            ? `Exp. ${Math.abs(expiry.daysRemaining ?? 0)}d`
+                            : `${expiry.daysRemaining ?? 0}d`}
+                        </span>
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-sky-400 shrink-0" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {calWarnings.length > ALERT_PREVIEW && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToTab('renewals')}
+                  className="w-full text-[10px] font-bold text-sky-400 hover:bg-slate-900 px-2.5 py-1.5 border-t border-slate-800 text-left"
+                >
+                  +{calWarnings.length - ALERT_PREVIEW} more tools → Renewals
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

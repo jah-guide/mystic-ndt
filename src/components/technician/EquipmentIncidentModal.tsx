@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AlertTriangle, X, Camera, AlertCircle, Package } from 'lucide-react';
 import { Equipment, EquipmentIncidentType, Job } from '../../types';
 import { StorageService } from '../../services/storage';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 interface EquipmentIncidentModalProps {
   isOpen: boolean;
@@ -30,6 +31,8 @@ export const EquipmentIncidentModal: React.FC<EquipmentIncidentModalProps> = ({
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+
+  useBodyScrollLock(isOpen);
 
   if (!isOpen) return null;
 
@@ -81,7 +84,7 @@ export const EquipmentIncidentModal: React.FC<EquipmentIncidentModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-hidden">
       <div className="bg-slate-900 border border-rose-500/30 w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
 
         {/* Header */}

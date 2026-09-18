@@ -7,6 +7,7 @@ import { Equipment, Job, AuditEntry } from '../../types';
 import { StorageService } from '../../services/storage';
 import { checkExpiry } from '../../utils/validation';
 import { formatDate } from '../../utils/formatters';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 interface EquipmentDeploymentModalProps {
   isOpen: boolean;
@@ -43,6 +44,8 @@ export const EquipmentDeploymentModal: React.FC<EquipmentDeploymentModalProps> =
   isOpen, onClose, job, allEquipment, inspectorName, onJobUpdated
 }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>([...job.equipmentIds]);
+
+  useBodyScrollLock(isOpen);
 
   if (!isOpen) return null;
 
@@ -173,7 +176,7 @@ export const EquipmentDeploymentModal: React.FC<EquipmentDeploymentModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-hidden">
       <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
 
         {/* Header */}
