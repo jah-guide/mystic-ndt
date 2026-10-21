@@ -4,6 +4,8 @@ Field inspection workflow for NDT companies — from job assign through findings
 
 This repo is a **high-fidelity frontend demo** (React + seed data in the browser). It exists to prove and freeze a company’s inspection process before a production backend is built for them.
 
+**Live demo (GitHub Pages):** https://jah-guide.github.io/mystic-ndt/
+
 ---
 
 ## What it does
