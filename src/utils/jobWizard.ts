@@ -176,3 +176,54 @@ export const WIZARD_STEPS = [
   { id: 4, label: 'Equipment' },
   { id: 5, label: 'Review' }
 ] as const;
+
+export type WizardStepId = (typeof WIZARD_STEPS)[number]['id'];
+
+/** Form fields used to resume / unlock wizard steps (create vs edit). */
+export interface WizardProgressInput {
+  customerId: string;
+  siteId: string;
+  method: NdtMethod;
+  inspectionDate: string;
+  inspectorId: string;
+  supervisorId: string;
+  linkedProcedureId: string;
+  equipmentIds: string[];
+  inspectors: Inspector[];
+  scope?: string;
+}
+
+/**
+ * First incomplete setup step (1–4), or 5 when Work → Equipment are populated.
+ * Used to resume Draft edits without replaying an empty create flow.
+ */
+export function getFirstIncompleteWizardStep(input: WizardProgressInput): WizardStepId {
+  if (!input.customerId || !input.siteId || !input.method || !input.inspectionDate) return 1;
+  if (!input.inspectorId) return 2;
+  const lead = input.inspectors.find(i => i.id === input.inspectorId);
+  if (lead && isLevel1ForMethod(lead, input.method) && !input.supervisorId) return 2;
+  if (!input.linkedProcedureId || !input.scope?.trim()) return 3;
+  if (input.equipmentIds.length === 0) return 4;
+  return 5;
+}
+
+/**
+ * Ready jobs (Assigned+, or Draft with full setup) open on Review with free step tabs.
+ * Incomplete Drafts resume at the first gap; create stays linear via session progress.
+ */
+export function getWizardOpenState(
+  input: WizardProgressInput,
+  existingStatus?: string
+): { initialStep: WizardStepId; unlockedMax: WizardStepId; freeNavigate: boolean } {
+  const firstIncomplete = getFirstIncompleteWizardStep(input);
+  const setupComplete = firstIncomplete === 5;
+  const freeNavigate = Boolean(existingStatus && (existingStatus !== 'Draft' || setupComplete));
+
+  if (freeNavigate) {
+    return { initialStep: 5, unlockedMax: 5, freeNavigate: true };
+  }
+  if (existingStatus) {
+    return { initialStep: firstIncomplete, unlockedMax: firstIncomplete, freeNavigate: false };
+  }
+  return { initialStep: 1, unlockedMax: 1, freeNavigate: false };
+}

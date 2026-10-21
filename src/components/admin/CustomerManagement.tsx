@@ -1,15 +1,57 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Plus, Edit3, MapPin, Mail, Phone, Building, X, Trash2, Search, ArrowLeft, ChevronRight, FileText
+  Plus, Edit3, MapPin, Mail, Phone, Building, X, Trash2, Search, ArrowLeft,
+  ChevronRight, FileText, Briefcase, CheckCircle2, Clock, CalendarDays
 } from 'lucide-react';
-import { Customer, Site, Job } from '../../types';
+import {
+  Customer, Site, Job, Inspector, Equipment, CompanySettings, NdtMethod
+} from '../../types';
 import { StorageService } from '../../services/storage';
 import { formatDate } from '../../utils/formatters';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
+import { Badge } from '../common/Badge';
+import { ReportViewModal } from '../reports/ReportViewModal';
+
+type JobBucket = 'past' | 'current' | 'future';
+
+const METHODS: NdtMethod[] = ['UT', 'MT', 'PT', 'VT'];
+
+function todayISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Schedule date for bucketing: inspection date, else due date. */
+function jobScheduleDate(job: Job): string {
+  return job.inspectionDate || job.dueDate || '';
+}
+
+/**
+ * Past = completed, or dated before today and not still open.
+ * Current = open jobs with schedule ≤ today (includes overdue).
+ * Future = not completed, schedule after today.
+ */
+function bucketJob(job: Job, today: string): JobBucket {
+  if (job.status === 'Completed') return 'past';
+
+  const date = jobScheduleDate(job);
+  const isOpen = job.status !== 'Draft';
+
+  if (date && date > today) return 'future';
+  if (isOpen) return 'current';
+  if (date && date < today) return 'past';
+  return 'current';
+}
 
 interface CustomerManagementProps {
   customers: Customer[];
   jobs: Job[];
+  inspectors?: Inspector[];
+  equipment?: Equipment[];
+  settings?: CompanySettings;
   onCustomerUpdated: () => void;
   onOpenJob?: (jobId: string) => void;
 }
@@ -17,13 +59,18 @@ interface CustomerManagementProps {
 export const CustomerManagement: React.FC<CustomerManagementProps> = ({
   customers,
   jobs,
+  inspectors = [],
+  equipment = [],
+  settings,
   onCustomerUpdated,
   onOpenJob
 }) => {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [methodFilter, setMethodFilter] = useState<NdtMethod | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | undefined>(undefined);
+  const [previewReportJob, setPreviewReportJob] = useState<Job | undefined>(undefined);
 
   const [companyName, setCompanyName] = useState('');
   const [contactPerson, setContactPerson] = useState('');
@@ -116,31 +163,151 @@ export const CustomerManagement: React.FC<CustomerManagementProps> = ({
     setIsModalOpen(false);
   };
 
-  const jobRow = (j: Job) => (
-    <button
-      key={j.id}
-      type="button"
-      onClick={() => onOpenJob?.(j.id)}
-      className="w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-sky-500/40 text-left transition-colors"
-    >
-      <div className="min-w-0">
-        <div className="font-bold text-sm text-white truncate">{j.jobNumber}</div>
-        <div className="text-[11px] text-slate-400 truncate">{j.method} · {j.status} · {formatDate(j.inspectionDate)}</div>
+  const openJob = (job: Job) => {
+    onOpenJob?.(job.id);
+  };
+
+  const canViewReport = (job: Job) =>
+    job.status === 'Completed' && Boolean(job.reportNumber || job.completedAt);
+
+  const renderJobCard = (j: Job) => {
+    const site = selectedCustomer?.sites.find(s => s.id === j.siteId);
+    const showReport = canViewReport(j);
+
+    return (
+      <div
+        key={j.id}
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${j.jobNumber}`}
+        onClick={() => openJob(j)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openJob(j);
+          }
+        }}
+        className="group w-full flex items-start gap-3 px-3.5 py-3 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-sky-500/50 text-left transition-all cursor-pointer"
+      >
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-sm text-white group-hover:text-sky-300 transition-colors">
+              {j.jobNumber}
+            </span>
+            <Badge variant="method" value={j.method} size="sm">
+              {j.method}
+            </Badge>
+            <Badge variant="status" value={j.status} size="sm">
+              {j.status}
+            </Badge>
+            {j.overallResult && j.overallResult !== 'PENDING' && (
+              <Badge variant="result" value={j.overallResult} size="sm">
+                {j.overallResult}
+              </Badge>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            {site?.name && (
+              <span className="inline-flex items-center gap-1 truncate">
+                <MapPin className="w-3 h-3 text-sky-400 shrink-0" />
+                {site.name}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1">
+              <CalendarDays className="w-3 h-3 text-sky-400 shrink-0" />
+              {formatDate(j.inspectionDate)}
+              {j.dueDate && j.dueDate !== j.inspectionDate && (
+                <span className="text-slate-500"> · due {formatDate(j.dueDate)}</span>
+              )}
+            </span>
+          </div>
+          {j.scope && (
+            <p className="text-[11px] text-slate-500 line-clamp-1">{j.scope}</p>
+          )}
+          {j.reportNumber && (
+            <p className="text-[10px] font-mono text-emerald-400/90">{j.reportNumber}</p>
+          )}
+        </div>
+
+        <div className="flex flex-col items-end gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+          {showReport && settings && (
+            <button
+              type="button"
+              onClick={() => setPreviewReportJob(j)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-600 hover:text-white hover:border-emerald-500 transition-colors"
+              title="View report PDF"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              View report
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => openJob(j)}
+            className="p-2 rounded-xl bg-slate-800 text-slate-400 group-hover:text-white group-hover:bg-sky-600 transition-all"
+            aria-label={`Open job ${j.jobNumber}`}
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {j.reportNumber && (
-          <span className="text-[10px] font-mono text-emerald-400">{j.reportNumber}</span>
-        )}
-        <ChevronRight className="w-4 h-4 text-slate-500" />
+    );
+  };
+
+  const renderJobSection = (
+    title: string,
+    icon: React.ReactNode,
+    sectionJobs: Job[],
+    empty: string
+  ) => (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+        {icon}
+        {title}
+        <span className="ml-auto text-slate-500 font-semibold normal-case tracking-normal">
+          {sectionJobs.length}
+        </span>
+      </h3>
+      <div className="space-y-2">
+        {sectionJobs.length === 0 && <p className="text-xs text-slate-500">{empty}</p>}
+        {sectionJobs.map(renderJobCard)}
       </div>
-    </button>
+    </div>
   );
 
   if (selectedCustomer) {
+    const today = todayISO();
     const custJobs = jobs.filter(j => j.customerId === selectedCustomer.id);
-    const currentJobs = custJobs.filter(j => j.status !== 'Completed' && j.status !== 'Draft');
-    const pastJobs = custJobs.filter(j => j.status === 'Completed');
-    const reports = pastJobs.filter(j => j.reportNumber);
+    const pastJobsAll = custJobs
+      .filter(j => bucketJob(j, today) === 'past')
+      .sort((a, b) => (b.inspectionDate || '').localeCompare(a.inspectionDate || ''));
+    const currentJobsAll = custJobs
+      .filter(j => bucketJob(j, today) === 'current')
+      .sort((a, b) => (a.inspectionDate || '').localeCompare(b.inspectionDate || ''));
+    const futureJobsAll = custJobs
+      .filter(j => bucketJob(j, today) === 'future')
+      .sort((a, b) => (a.inspectionDate || '').localeCompare(b.inspectionDate || ''));
+
+    const byMethod = (list: Job[]) =>
+      methodFilter ? list.filter(j => j.method === methodFilter) : list;
+    const pastJobs = byMethod(pastJobsAll);
+    const currentJobs = byMethod(currentJobsAll);
+    const futureJobs = byMethod(futureJobsAll);
+
+    const completed = custJobs.filter(j => j.status === 'Completed');
+    const openCount = custJobs.filter(j => j.status !== 'Completed' && j.status !== 'Draft').length;
+    const passCount = completed.filter(j => j.overallResult === 'PASS').length;
+    const failCount = completed.filter(j => j.overallResult === 'FAIL').length;
+    const methodCounts = METHODS.reduce((acc, m) => {
+      acc[m] = custJobs.filter(j => j.method === m).length;
+      return acc;
+    }, {} as Record<NdtMethod, number>);
+    const methodTotal = custJobs.length || 1;
+
+    const filteredEmpty = (bucket: string) =>
+      methodFilter
+        ? `No ${methodFilter} jobs in this bucket.`
+        : bucket;
 
     return (
       <div className="space-y-6">
@@ -148,7 +315,10 @@ export const CustomerManagement: React.FC<CustomerManagementProps> = ({
           <div>
             <button
               type="button"
-              onClick={() => setSelectedCustomerId(null)}
+              onClick={() => {
+                setSelectedCustomerId(null);
+                setMethodFilter(null);
+              }}
               className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-400 hover:text-sky-300 mb-2"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
@@ -167,6 +337,105 @@ export const CustomerManagement: React.FC<CustomerManagementProps> = ({
             <Edit3 className="w-4 h-4" />
             Edit customer
           </button>
+        </div>
+
+        {/* Meaningful stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+            <div className="flex items-center justify-between text-slate-400 mb-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Total jobs</span>
+              <Briefcase className="w-3.5 h-3.5 text-sky-400" />
+            </div>
+            <div className="text-2xl font-black text-white">{custJobs.length}</div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              {openCount} open · {completed.length} completed
+            </p>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+            <div className="flex items-center justify-between text-slate-400 mb-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Open vs done</span>
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+            </div>
+            <div className="text-2xl font-black text-white">
+              <span className="text-amber-300">{openCount}</span>
+              <span className="text-slate-600 mx-1">/</span>
+              <span className="text-emerald-400">{completed.length}</span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              {currentJobsAll.length} current · {futureJobsAll.length} upcoming
+            </p>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+            <div className="flex items-center justify-between text-slate-400 mb-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Pass / Fail</span>
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            </div>
+            <div className="text-2xl font-black text-white">
+              <span className="text-emerald-400">{passCount}</span>
+              <span className="text-slate-600 mx-1">/</span>
+              <span className="text-rose-400">{failCount}</span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Of {completed.length} completed
+              {completed.length > 0 && failCount > 0
+                ? ` · ${Math.round((failCount / completed.length) * 100)}% fail rate`
+                : ''}
+            </p>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+            <div className="flex items-center justify-between text-slate-400 mb-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Methods</span>
+              {methodFilter && (
+                <span className="text-[10px] font-semibold normal-case tracking-normal text-sky-400">
+                  Filtered
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-2" role="group" aria-label="Filter jobs by method">
+              {METHODS.map(m => {
+                const selected = methodFilter === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMethodFilter(prev => (prev === m ? null : m))}
+                    title={selected ? `Clear ${m} filter` : `Filter jobs by ${m}`}
+                    aria-pressed={selected}
+                    aria-label={selected ? `${m} filter active, click to clear` : `Filter jobs by ${m}`}
+                    className={`cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/80 ${
+                      selected ? 'ring-2 ring-sky-400/80 ring-offset-1 ring-offset-slate-900' : 'hover:opacity-90'
+                    }`}
+                  >
+                    <Badge variant="method" value={m} size="sm" className={selected ? 'shadow-md' : ''}>
+                      {m} {methodCounts[m]}
+                    </Badge>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex h-1.5 rounded-full overflow-hidden bg-slate-800">
+              {METHODS.map(m => {
+                const n = methodCounts[m];
+                if (!n) return null;
+                const pct = (n / methodTotal) * 100;
+                const barColor =
+                  m === 'UT' ? 'bg-cyan-500' :
+                  m === 'MT' ? 'bg-purple-500' :
+                  m === 'PT' ? 'bg-rose-500' : 'bg-amber-500';
+                return (
+                  <div
+                    key={m}
+                    className={`${barColor} h-full`}
+                    style={{ width: `${pct}%` }}
+                    title={`${m}: ${n}`}
+                  />
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -207,53 +476,41 @@ export const CustomerManagement: React.FC<CustomerManagementProps> = ({
           </div>
 
           <div className="lg:col-span-2 space-y-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
-                Current jobs ({currentJobs.length})
-              </h3>
-              <div className="space-y-2">
-                {currentJobs.length === 0 && <p className="text-xs text-slate-500">No open jobs.</p>}
-                {currentJobs.map(jobRow)}
-              </div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
-                Past jobs ({pastJobs.length})
-              </h3>
-              <div className="space-y-2">
-                {pastJobs.length === 0 && <p className="text-xs text-slate-500">No completed jobs yet.</p>}
-                {pastJobs.map(jobRow)}
-              </div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
-                <FileText className="w-3.5 h-3.5" />
-                Reports issued ({reports.length})
-              </h3>
-              <div className="space-y-2">
-                {reports.length === 0 && <p className="text-xs text-slate-500">No certificates issued yet.</p>}
-                {reports.map(j => (
-                  <button
-                    key={j.id}
-                    type="button"
-                    onClick={() => onOpenJob?.(j.id)}
-                    className="w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-emerald-950/20 border border-emerald-500/20 hover:border-emerald-400/40 text-left"
-                  >
-                    <div>
-                      <div className="font-mono text-sm text-emerald-300 font-bold">{j.reportNumber}</div>
-                      <div className="text-[11px] text-slate-400">{j.jobNumber} · {formatDate(j.completedAt || j.inspectionDate)}</div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-500" />
-                  </button>
-                ))}
-              </div>
-            </div>
+            {renderJobSection(
+              'Current jobs',
+              <Clock className="w-3.5 h-3.5 text-amber-400" />,
+              currentJobs,
+              filteredEmpty('No open jobs in the current window.')
+            )}
+            {renderJobSection(
+              'Future jobs',
+              <CalendarDays className="w-3.5 h-3.5 text-sky-400" />,
+              futureJobs,
+              filteredEmpty('No upcoming scheduled jobs.')
+            )}
+            {renderJobSection(
+              'Past jobs',
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />,
+              pastJobs,
+              filteredEmpty('No completed or past-dated jobs yet.')
+            )}
           </div>
         </div>
 
         {isModalOpen && renderModal()}
+
+        {previewReportJob && settings && (
+          <ReportViewModal
+            isOpen={Boolean(previewReportJob)}
+            onClose={() => setPreviewReportJob(undefined)}
+            job={previewReportJob}
+            customer={selectedCustomer}
+            inspector={inspectors.find(i => i.id === previewReportJob.inspectorId)}
+            supervisor={inspectors.find(i => i.id === previewReportJob.supervisorId)}
+            equipmentList={equipment.filter(e => previewReportJob.equipmentIds?.includes(e.id))}
+            settings={settings}
+          />
+        )}
       </div>
     );
   }
@@ -389,7 +646,10 @@ export const CustomerManagement: React.FC<CustomerManagementProps> = ({
             <button
               key={cust.id}
               type="button"
-              onClick={() => setSelectedCustomerId(cust.id)}
+              onClick={() => {
+                setMethodFilter(null);
+                setSelectedCustomerId(cust.id);
+              }}
               className="w-full flex items-center gap-3 sm:gap-4 px-4 py-3.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-sky-500/40 text-left transition-colors group"
             >
               <div className="w-10 h-10 rounded-lg bg-sky-500/15 text-sky-400 flex items-center justify-center shrink-0">

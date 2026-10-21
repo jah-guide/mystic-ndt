@@ -297,7 +297,12 @@ export const Level3ReviewModal: React.FC<Level3ReviewModalProps> = ({
             <button
               type="button"
               onClick={handleApprove}
-              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-sm shadow-lg shadow-emerald-500/25 flex items-center gap-2"
+              disabled={!l3Signature}
+              className={`px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 ${
+                l3Signature
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white shadow-emerald-500/25'
+                  : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700 shadow-none'
+              }`}
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>Sign & Certify Report (L3)</span>
@@ -306,7 +311,12 @@ export const Level3ReviewModal: React.FC<Level3ReviewModalProps> = ({
             <button
               type="button"
               onClick={handleReject}
-              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-white font-bold text-sm shadow-lg shadow-rose-500/25 flex items-center gap-2"
+              disabled={!rejectionReason.trim()}
+              className={`px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 ${
+                rejectionReason.trim()
+                  ? 'bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-white shadow-rose-500/25'
+                  : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700 shadow-none'
+              }`}
             >
               <XCircle className="w-4 h-4" />
               <span>{isL1Supervised ? 'Reject → Revision Required' : 'Reject → Return to Lead'}</span>

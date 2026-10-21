@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Wrench, Plus, Edit3, X, CheckCircle2, History, RefreshCw, Search,
+  Wrench, Plus, Edit3, X, CheckCircle2, History, RefreshCw, Search, Filter,
   ArrowLeft, ChevronRight, AlertTriangle, FileText, Upload
 } from 'lucide-react';
-import { Equipment, CalibrationRecord, Job, EquipmentIncident } from '../../types';
+import { Equipment, CalibrationRecord, Job, EquipmentIncident, EquipmentCheckoutStatus } from '../../types';
 import { checkExpiry } from '../../utils/validation';
 import { formatDate, formatDateTime } from '../../utils/formatters';
 import { StorageService } from '../../services/storage';
@@ -18,6 +18,50 @@ const EQUIPMENT_CATEGORIES: NonNullable<Equipment['category']>[] = [
   'Visual / Optical',
   'General'
 ];
+
+type AvailabilityFilter = 'ALL' | 'Available' | 'On Job' | 'Locked out';
+
+function getCheckoutStatus(eq: Equipment): EquipmentCheckoutStatus {
+  return eq.checkoutStatus || 'Available';
+}
+
+function isLockedOut(eq: Equipment): boolean {
+  const status = getCheckoutStatus(eq);
+  return status === 'Incident Reported' || status === 'In Maintenance';
+}
+
+/** Badge styles aligned with cal badges and EquipmentDeploymentModal. */
+function getAvailabilityBadge(eq: Equipment): { label: string; className: string } {
+  const status = getCheckoutStatus(eq);
+  switch (status) {
+    case 'On Job':
+      return {
+        label: 'On Job',
+        className: 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+      };
+    case 'Incident Reported':
+      return {
+        label: 'Incident',
+        className: 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+      };
+    case 'In Maintenance':
+      return {
+        label: 'Maintenance',
+        className: 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+      };
+    default:
+      return {
+        label: 'Available',
+        className: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+      };
+  }
+}
+
+function matchesAvailabilityFilter(eq: Equipment, filter: AvailabilityFilter): boolean {
+  if (filter === 'ALL') return true;
+  if (filter === 'Locked out') return isLockedOut(eq);
+  return getCheckoutStatus(eq) === filter;
+}
 
 interface EquipmentManagementProps {
   equipment: Equipment[];
@@ -52,6 +96,20 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [calFilter, setCalFilter] = useState<'ALL' | 'valid' | 'expiring_soon' | 'expired'>('ALL');
+  const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>('ALL');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) {
+        setFiltersOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [filtersOpen]);
 
   const [name, setName] = useState('');
   const [type, setType] = useState('Ultrasonic Thickness Gauge');
@@ -191,12 +249,14 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   const filteredEquipment = equipment.filter(eq => {
     if (categoryFilter !== 'ALL' && eq.category !== categoryFilter) return false;
     if (calFilter !== 'ALL' && checkExpiry(eq.calibrationExpiryDate).status !== calFilter) return false;
+    if (!matchesAvailabilityFilter(eq, availabilityFilter)) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
         eq.name.toLowerCase().includes(q) ||
         eq.serialNumber.toLowerCase().includes(q) ||
-        eq.type.toLowerCase().includes(q)
+        eq.type.toLowerCase().includes(q) ||
+        (eq.currentJobNumber || '').toLowerCase().includes(q)
       );
     }
     return true;
@@ -205,6 +265,31 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   const validCount = equipment.filter(e => checkExpiry(e.calibrationExpiryDate).status === 'valid').length;
   const expiringSoonCount = equipment.filter(e => checkExpiry(e.calibrationExpiryDate).status === 'expiring_soon').length;
   const expiredCount = equipment.filter(e => checkExpiry(e.calibrationExpiryDate).status === 'expired').length;
+
+  const availableCount = equipment.filter(e => getCheckoutStatus(e) === 'Available').length;
+  const onJobCount = equipment.filter(e => getCheckoutStatus(e) === 'On Job').length;
+  const lockedOutCount = equipment.filter(e => isLockedOut(e)).length;
+
+  const activeFilterCount =
+    (calFilter !== 'ALL' ? 1 : 0) +
+    (availabilityFilter !== 'ALL' ? 1 : 0);
+
+  const clearFilters = () => {
+    setCalFilter('ALL');
+    setAvailabilityFilter('ALL');
+    setSearchQuery('');
+  };
+
+  const chipClass = (active: boolean, tone: 'sky' | 'emerald' | 'amber' | 'rose' | 'slate' = 'sky') => {
+    const tones = {
+      sky: active ? 'bg-sky-500/25 text-sky-200 border-sky-400/50' : 'bg-slate-950 text-slate-400 border-slate-700 hover:border-slate-500',
+      emerald: active ? 'bg-emerald-500/25 text-emerald-200 border-emerald-400/50' : 'bg-slate-950 text-slate-400 border-slate-700 hover:border-slate-500',
+      amber: active ? 'bg-amber-500/25 text-amber-200 border-amber-400/50' : 'bg-slate-950 text-slate-400 border-slate-700 hover:border-slate-500',
+      rose: active ? 'bg-rose-500/25 text-rose-200 border-rose-400/50' : 'bg-slate-950 text-slate-400 border-slate-700 hover:border-slate-500',
+      slate: active ? 'bg-slate-600/40 text-white border-slate-400/50' : 'bg-slate-950 text-slate-400 border-slate-700 hover:border-slate-500'
+    };
+    return `px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${tones[tone]}`;
+  };
 
   useBodyScrollLock(isModalOpen || isCalModalOpen);
 
@@ -338,6 +423,7 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
   if (liveSelected) {
     const eq = liveSelected;
     const calCheck = checkExpiry(eq.calibrationExpiryDate);
+    const availabilityBadge = getAvailabilityBadge(eq);
     const linkedJobs = jobs.filter(j => (j.equipmentIds || []).includes(eq.id));
     const eqIncidents: EquipmentIncident[] = incidents.filter(i => i.equipmentId === eq.id);
 
@@ -376,18 +462,37 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="space-y-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${
-                calCheck.status === 'expired' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                  : calCheck.status === 'expiring_soon' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-              }`}>
-                Cal: {calCheck.formattedText} ({formatDate(eq.calibrationExpiryDate)})
-              </span>
+              <div className="flex flex-wrap gap-2">
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                  calCheck.status === 'expired' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                    : calCheck.status === 'expiring_soon' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                }`}>
+                  Cal: {calCheck.formattedText} ({formatDate(eq.calibrationExpiryDate)})
+                </span>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${availabilityBadge.className}`}>
+                  {availabilityBadge.label}
+                </span>
+              </div>
               <div className="text-xs text-slate-400 space-y-1">
                 <div>Last cal: <span className="text-slate-200">{formatDate(eq.calibrationDate)}</span></div>
-                <div>Checkout: <span className="text-slate-200">{eq.checkoutStatus || 'Available'}</span></div>
                 {eq.checkedOutTo && <div>Checked out to: <span className="text-slate-200">{eq.checkedOutTo}</span></div>}
-                {eq.currentJobNumber && <div>Current job: <span className="text-sky-300 font-mono">{eq.currentJobNumber}</span></div>}
+                {eq.currentJobNumber && (
+                  <div>
+                    Current job:{' '}
+                    {eq.currentJobId && onOpenJob ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenJob(eq.currentJobId!)}
+                        className="text-sky-300 font-mono font-bold hover:text-sky-200 underline-offset-2 hover:underline"
+                      >
+                        {eq.currentJobNumber}
+                      </button>
+                    ) : (
+                      <span className="text-sky-300 font-mono font-bold">{eq.currentJobNumber}</span>
+                    )}
+                  </div>
+                )}
                 {eq.status && <div>Status: <span className="text-slate-200">{eq.status}</span></div>}
               </div>
               {eq.notes && <p className="text-xs text-slate-400 pt-2 border-t border-slate-800">{eq.notes}</p>}
@@ -582,16 +687,49 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
         </button>
       </div>
 
+      <div className="grid grid-cols-3 gap-3">
+        <button
+          type="button"
+          onClick={() => setAvailabilityFilter(availabilityFilter === 'Available' ? 'ALL' : 'Available')}
+          className={`bg-slate-900 border px-3.5 py-3 rounded-xl text-left ${
+            availabilityFilter === 'Available' ? 'border-emerald-400/60 ring-1 ring-emerald-500/30' : 'border-slate-800'
+          }`}
+        >
+          <span className="text-[10px] uppercase font-bold text-emerald-400/80 block">Available</span>
+          <div className="text-xl font-black text-emerald-400 mt-0.5">{availableCount}</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setAvailabilityFilter(availabilityFilter === 'On Job' ? 'ALL' : 'On Job')}
+          className={`bg-slate-900 border px-3.5 py-3 rounded-xl text-left ${
+            availabilityFilter === 'On Job' ? 'border-sky-400/60 ring-1 ring-sky-500/30' : 'border-slate-800'
+          }`}
+        >
+          <span className="text-[10px] uppercase font-bold text-sky-400/80 block">On Job</span>
+          <div className="text-xl font-black text-sky-300 mt-0.5">{onJobCount}</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setAvailabilityFilter(availabilityFilter === 'Locked out' ? 'ALL' : 'Locked out')}
+          className={`bg-slate-900 border px-3.5 py-3 rounded-xl text-left ${
+            availabilityFilter === 'Locked out' ? 'border-rose-400/60 ring-1 ring-rose-500/30' : 'border-slate-800'
+          }`}
+        >
+          <span className="text-[10px] uppercase font-bold text-rose-400/80 block">Locked Out</span>
+          <div className="text-xl font-black text-rose-400 mt-0.5">{lockedOutCount}</div>
+        </button>
+      </div>
+
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-3">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
+        <div className="flex flex-col sm:flex-row gap-2 items-stretch">
+          <div className="relative flex-1 min-w-0">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search apparatus, serial, type…"
+              placeholder="Search apparatus, serial, type, job…"
               className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-sky-500" />
           </div>
           <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}
-            className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-sm text-slate-300 focus:outline-none focus:border-sky-500">
+            className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-sm text-slate-300 focus:outline-none focus:border-sky-500 shrink-0">
             <option value="ALL">All Categories</option>
             <option value="Ultrasonic">Ultrasonic (UT)</option>
             <option value="Magnetic Particle">Magnetic Particle (MT)</option>
@@ -599,22 +737,75 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
             <option value="Visual / Optical">Visual / Optical (VT)</option>
             <option value="General">General Apparatus</option>
           </select>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {([
-            { id: 'ALL' as const, label: 'All cal' },
-            { id: 'valid' as const, label: 'In calibration' },
-            { id: 'expiring_soon' as const, label: 'Due soon' },
-            { id: 'expired' as const, label: 'Expired' }
-          ]).map(chip => (
-            <button key={chip.id} type="button" onClick={() => setCalFilter(chip.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
-                calFilter === chip.id ? 'bg-slate-800 border-sky-400/50 text-sky-200' : 'bg-slate-950 border-slate-700 text-slate-400'
-              }`}>
-              {chip.label}
+          <div className="relative shrink-0" ref={filtersRef}>
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(o => !o)}
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border text-sm font-bold transition-colors h-full ${
+                filtersOpen || activeFilterCount > 0
+                  ? 'bg-sky-500/15 border-sky-500/50 text-sky-300'
+                  : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'
+              }`}
+              aria-expanded={filtersOpen}
+              aria-haspopup="dialog"
+            >
+              <Filter className="w-4 h-4" />
+              <span className="hidden sm:inline">Filters</span>
+              {activeFilterCount > 0 && (
+                <span className="min-w-[1.25rem] h-5 px-1 rounded-md bg-sky-500 text-white text-[10px] font-black flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
-          ))}
+            {filtersOpen && (
+              <div className="absolute right-0 top-full mt-2 z-30 w-[min(100vw-2rem,20rem)] rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl p-4 space-y-4">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">Calibration</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setCalFilter('ALL')} className={chipClass(calFilter === 'ALL', 'slate')}>All cal</button>
+                    <button type="button" onClick={() => setCalFilter('valid')} className={chipClass(calFilter === 'valid', 'emerald')}>In calibration</button>
+                    <button type="button" onClick={() => setCalFilter('expiring_soon')} className={chipClass(calFilter === 'expiring_soon', 'amber')}>Due soon</button>
+                    <button type="button" onClick={() => setCalFilter('expired')} className={chipClass(calFilter === 'expired', 'rose')}>Expired</button>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">Availability</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setAvailabilityFilter('ALL')} className={chipClass(availabilityFilter === 'ALL', 'slate')}>All availability</button>
+                    <button type="button" onClick={() => setAvailabilityFilter('Available')} className={chipClass(availabilityFilter === 'Available', 'emerald')}>Available</button>
+                    <button type="button" onClick={() => setAvailabilityFilter('On Job')} className={chipClass(availabilityFilter === 'On Job', 'sky')}>On job</button>
+                    <button type="button" onClick={() => setAvailabilityFilter('Locked out')} className={chipClass(availabilityFilter === 'Locked out', 'rose')}>Locked out</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
+
+        {(activeFilterCount > 0 || searchQuery) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {calFilter !== 'ALL' && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-600">
+                Cal: {calFilter === 'expiring_soon' ? 'Due soon' : calFilter === 'expired' ? 'Expired' : 'In calibration'}
+                <button type="button" onClick={() => setCalFilter('ALL')} className="hover:text-white" aria-label="Clear calibration filter">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {availabilityFilter !== 'ALL' && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-600">
+                {availabilityFilter === 'On Job' ? 'On job' : availabilityFilter}
+                <button type="button" onClick={() => setAvailabilityFilter('ALL')} className="hover:text-white" aria-label="Clear availability filter">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            <button type="button" onClick={clearFilters} className="text-xs font-semibold text-sky-400 hover:text-sky-300">
+              Clear all
+            </button>
+          </div>
+        )}
+
         <p className="text-xs text-slate-500">Showing {filteredEquipment.length} of {equipment.length}</p>
       </div>
 
@@ -637,6 +828,8 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
               </div>
               {items.map(eq => {
                 const calCheck = checkExpiry(eq.calibrationExpiryDate);
+                const availabilityBadge = getAvailabilityBadge(eq);
+                const onJob = getCheckoutStatus(eq) === 'On Job';
                 return (
                   <button
                     key={eq.id}
@@ -650,15 +843,25 @@ export const EquipmentManagement: React.FC<EquipmentManagementProps> = ({
                     <div className="min-w-0 flex-1">
                       <div className="font-extrabold text-white truncate">{eq.name}</div>
                       <div className="text-xs text-sky-400 font-mono truncate">{eq.serialNumber}</div>
+                      {onJob && eq.currentJobNumber && (
+                        <div className="mt-0.5 text-[11px] text-slate-400 truncate">
+                          Job <span className="font-mono font-bold text-sky-300">{eq.currentJobNumber}</span>
+                          {eq.checkedOutTo ? ` · ${eq.checkedOutTo}` : ''}
+                        </div>
+                      )}
                     </div>
-                    <span className={`hidden sm:inline-flex px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 ${
-                      calCheck.status === 'expired' ? 'bg-rose-500/20 text-rose-400'
-                        : calCheck.status === 'expiring_soon' ? 'bg-amber-500/20 text-amber-400'
-                        : 'bg-emerald-500/20 text-emerald-400'
-                    }`}>
-                      {calCheck.status === 'expired' ? 'Expired' : calCheck.status === 'expiring_soon' ? 'Due soon' : 'In cal'}
-                    </span>
-                    <span className="hidden lg:inline text-[10px] text-slate-500 shrink-0">{eq.checkoutStatus || 'Available'}</span>
+                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5 shrink-0">
+                      <span className={`inline-flex px-2 py-1 rounded-lg text-[10px] font-bold border ${
+                        calCheck.status === 'expired' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                          : calCheck.status === 'expiring_soon' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                          : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                      }`}>
+                        {calCheck.status === 'expired' ? 'Expired' : calCheck.status === 'expiring_soon' ? 'Due soon' : 'In cal'}
+                      </span>
+                      <span className={`inline-flex px-2 py-1 rounded-lg text-[10px] font-bold ${availabilityBadge.className}`}>
+                        {availabilityBadge.label}
+                      </span>
+                    </div>
                     <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-sky-400 shrink-0" />
                   </button>
                 );

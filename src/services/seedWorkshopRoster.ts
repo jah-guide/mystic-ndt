@@ -1,9 +1,10 @@
 /**
  * Realistic small-workshop roster for Apex NDT demo:
- * 6 customers · 15 inspectors · 33 equipment items
- * Varied methods, cert expiry, and calibration states (as of ~2026-09-12).
+ * 8 customers · 16 inspectors · 33 equipment items
+ * Cert/cal/vision dates are relative to "today" whenever the module loads.
  */
 import { Customer, Inspector, Equipment, MethodCertificate, NdtMethod } from '../types';
+import { daysFromToday, dueSoonCutoff, todayISO, SEED_OFFSETS, isoDateTime } from './seedDateUtils';
 
 /** Tiny placeholder "certificate" document for seed / mock upload demos */
 export const PLACEHOLDER_CERT_DOC =
@@ -30,6 +31,21 @@ export const PLACEHOLDER_CAL_DOC =
     </svg>`
   );
 
+const D = {
+  valid: () => daysFromToday(SEED_OFFSETS.VALID),
+  validLong: () => daysFromToday(SEED_OFFSETS.VALID_LONG),
+  validNear: () => daysFromToday(SEED_OFFSETS.VALID_NEAR),
+  dueSoon14: () => daysFromToday(SEED_OFFSETS.DUE_SOON_14),
+  dueSoon21: () => daysFromToday(SEED_OFFSETS.DUE_SOON_21),
+  dueSoon28: () => daysFromToday(SEED_OFFSETS.DUE_SOON_28),
+  expired30: () => daysFromToday(SEED_OFFSETS.EXPIRED_30),
+  expired60: () => daysFromToday(SEED_OFFSETS.EXPIRED_60),
+  expired90: () => daysFromToday(SEED_OFFSETS.EXPIRED_90),
+  expired180: () => daysFromToday(SEED_OFFSETS.EXPIRED_180),
+  visionValid: () => daysFromToday(SEED_OFFSETS.VALID),
+  calStart: (expiryOffset: number) => daysFromToday(expiryOffset - 365),
+};
+
 function buildMethodCerts(
   inspId: string,
   defaultLevel: Inspector['level'],
@@ -38,9 +54,7 @@ function buildMethodCerts(
   opts?: {
     pendingMethods?: NdtMethod[];
     rejectedMethods?: NdtMethod[];
-    /** Per-method level overrides (ISO 9712 mixed levels) */
     levelByMethod?: Partial<Record<NdtMethod, Inspector['level']>>;
-    /** Per-method expiry overrides */
     expiryByMethod?: Partial<Record<NdtMethod, string>>;
   }
 ): MethodCertificate[] {
@@ -99,7 +113,8 @@ function withMethodCerts(
     level: derivedLevel,
     certExpiryDate: soonestExpiry,
     methodCertificates,
-    visionAcuityExpiryDate: insp.visionAcuityExpiryDate || '2027-06-30',
+    visionAcuityExpiryDate: insp.visionAcuityExpiryDate || D.visionValid(),
+    visionVerificationStatus: insp.visionVerificationStatus || 'Verified',
     employerAuthorized: insp.employerAuthorized !== false
   };
 }
@@ -127,7 +142,7 @@ export const workshopCustomers: Customer[] = [
     sites: [
       { id: 'site-2-1', name: 'Sasolburg Chemical Complex - Steam Line Spool', address: 'Klasie Havenga Road, Sasolburg, Free State, 1947' }
     ],
-    notes: 'Strict HSE protocol required. Site induction valid through Dec 2026.',
+    notes: 'Strict HSE protocol required. Site induction required before mobilising.',
     createdAt: '2026-02-01T09:30:00.000Z'
   },
   {
@@ -178,10 +193,39 @@ export const workshopCustomers: Customer[] = [
     ],
     notes: 'Corrosion mapping UT campaigns on digester shells. Acid-resistant PPE required.',
     createdAt: '2026-04-05T09:00:00.000Z'
+  },
+  {
+    id: 'cust-7',
+    companyName: 'Anglo American Platinum — Waterval Smelter',
+    contactPerson: 'Lebo Molefe',
+    email: 'lebo.molefe@angloamerican.com',
+    phone: '+27 14 596 3000',
+    sites: [
+      { id: 'site-7-1', name: 'Waterval Converter Aisle', address: 'Rustenburg, North West, 0300' },
+      { id: 'site-7-2', name: 'Waterval Flash Furnace Deck', address: 'Rustenburg, North West, 0300' }
+    ],
+    notes: 'High-temperature refractory and ducting campaigns. Hot-work permits mandatory.',
+    createdAt: '2026-05-12T08:00:00.000Z'
+  },
+  {
+    id: 'cust-8',
+    companyName: 'Transnet Pipelines — Inland Terminals',
+    contactPerson: 'Priya Naicker',
+    email: 'priya.naicker@transnet.net',
+    phone: '+27 31 361 1200',
+    sites: [
+      { id: 'site-8-1', name: 'Durban Island View Terminal', address: 'Island View, Durban, 4052' }
+    ],
+    notes: 'Midstream tank and piping integrity — UT corrosion mapping and VT final welds.',
+    createdAt: '2026-06-01T09:00:00.000Z'
   }
 ];
 
-/** 15 inspectors — mix of L1/L2/L3, methods, and cert validity (demo date ~2026-09-12) */
+/**
+ * Inspectors with relative cert expiry.
+ * ~70% valid / ~20% due soon / ~10% expired on method certs;
+ * demo cast (insp-1, insp-4, insp-l3-1) always valid.
+ */
 const workshopInspectorsBase: Inspector[] = [
   {
     id: 'insp-1',
@@ -191,7 +235,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'SAQCC / ISO 9712 Level 2',
     certNumber: 'SAQCC-NDT-8492',
     level: 'Level 2',
-    certExpiryDate: '2027-06-30',
+    certExpiryDate: D.valid(),
     methods: ['UT', 'MT', 'PT', 'VT'],
     notes: 'Senior multi-method inspector. UT/MT/PT Level 2; VT Level 1. Primary supervisor for Level 1 technicians.'
   },
@@ -203,7 +247,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'ISO 9712 Level 3 / ASNT Level III',
     certNumber: 'ISO-9712-L3-ZA-0412',
     level: 'Level 3',
-    certExpiryDate: '2028-12-31',
+    certExpiryDate: D.validLong(),
     methods: ['UT', 'MT', 'PT', 'VT'],
     notes: 'Principal Technical Authority & QA reviewer. UT/MT Level 3; PT/VT Level 2.'
   },
@@ -215,9 +259,9 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'SAQCC NDT Level 2',
     certNumber: 'SAQCC-NDT-9104',
     level: 'Level 2',
-    certExpiryDate: '2026-09-28',
+    certExpiryDate: D.dueSoon21(),
     methods: ['MT', 'PT', 'VT'],
-    notes: 'Surface methods specialist. Cert expiring soon — renew before October outages.'
+    notes: 'Surface methods specialist. Cert due soon — renew before next outage window.'
   },
   {
     id: 'insp-3',
@@ -227,7 +271,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'ISO 9712 UT Level 2',
     certNumber: 'ISO-9712-ZA-3841',
     level: 'Level 2',
-    certExpiryDate: '2026-08-15',
+    certExpiryDate: D.expired60(),
     methods: ['UT'],
     notes: 'UT qualified but CERT EXPIRED — must be blocked from new job assignment until renewed.'
   },
@@ -239,7 +283,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'SAQCC NDT Level 1',
     certNumber: 'SAQCC-NDT-L1-1122',
     level: 'Level 1',
-    certExpiryDate: '2027-03-31',
+    certExpiryDate: D.validNear(),
     methods: ['UT', 'MT'],
     defaultSupervisorId: 'insp-1',
     notes: 'Junior L1. Must be supervised by L2/L3 per ISO 9712.'
@@ -252,7 +296,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'SAQCC / ISO 9712 Level 2',
     certNumber: 'SAQCC-NDT-7721',
     level: 'Level 2',
-    certExpiryDate: '2027-11-15',
+    certExpiryDate: D.valid(),
     methods: ['UT', 'VT'],
     notes: 'UT thickness & corrosion mapping lead. Coastal plant experience.'
   },
@@ -264,7 +308,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'SAQCC NDT Level 1',
     certNumber: 'SAQCC-NDT-L1-2208',
     level: 'Level 1',
-    certExpiryDate: '2026-07-01',
+    certExpiryDate: D.expired90(),
     methods: ['MT', 'PT'],
     defaultSupervisorId: 'insp-2',
     notes: 'L1 surface methods — CERT EXPIRED. Block assignment despite method match.'
@@ -277,7 +321,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'ISO 9712 Level 2',
     certNumber: 'ISO-9712-ZA-5510',
     level: 'Level 2',
-    certExpiryDate: '2027-01-20',
+    certExpiryDate: D.valid(),
     methods: ['PT', 'VT'],
     notes: 'PT / VT specialist for stainless and aluminium fabrications.'
   },
@@ -289,7 +333,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'SAQCC / ISO 9712 Level 2',
     certNumber: 'SAQCC-NDT-6402',
     level: 'Level 2',
-    certExpiryDate: '2026-10-05',
+    certExpiryDate: D.dueSoon14(),
     methods: ['UT', 'MT', 'VT'],
     notes: 'Cert due soon. Strong on structural UT + MT combination jobs.'
   },
@@ -301,7 +345,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'ISO 9712 Level 3',
     certNumber: 'ISO-9712-L3-ZA-0881',
     level: 'Level 3',
-    certExpiryDate: '2028-06-30',
+    certExpiryDate: D.validLong(),
     methods: ['UT', 'MT'],
     notes: 'Second L3 — UT/MT procedure author. Can back up Pretorius on QA reviews.'
   },
@@ -313,9 +357,9 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'SAQCC NDT Level 2',
     certNumber: 'SAQCC-NDT-5019',
     level: 'Level 2',
-    certExpiryDate: '2025-12-31',
+    certExpiryDate: D.expired180(),
     methods: ['MT', 'PT', 'VT', 'UT'],
-    notes: 'Multi-method L2 but CERT EXPIRED Dec 2025 — blocked from assignment until renewal.'
+    notes: 'Multi-method L2 but CERT EXPIRED — blocked from assignment until renewal.'
   },
   {
     id: 'insp-11',
@@ -325,7 +369,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'SAQCC NDT Level 1',
     certNumber: 'SAQCC-NDT-L1-3340',
     level: 'Level 1',
-    certExpiryDate: '2027-08-15',
+    certExpiryDate: D.valid(),
     methods: ['VT', 'PT'],
     defaultSupervisorId: 'insp-7',
     notes: 'L1 visual / penetrant. Valid cert. Default supervisor Nadia Ferreira.'
@@ -338,7 +382,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'ISO 9712 UT Level 2',
     certNumber: 'ISO-9712-ZA-4188',
     level: 'Level 2',
-    certExpiryDate: '2027-04-30',
+    certExpiryDate: D.validNear(),
     methods: ['UT'],
     notes: 'UT-only L2. Flaw detection and TOFD-assist experience (demo scope: UT).'
   },
@@ -350,9 +394,9 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'SAQCC / ISO 9712 Level 2',
     certNumber: 'SAQCC-NDT-8830',
     level: 'Level 2',
-    certExpiryDate: '2026-09-20',
+    certExpiryDate: D.dueSoon28(),
     methods: ['MT'],
-    notes: 'MT-only L2. Cert expiring within days — warn on assign.'
+    notes: 'MT-only L2. Near-vision date missing from employer file — assignment blocked.'
   },
   {
     id: 'insp-14',
@@ -362,10 +406,10 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'SAQCC NDT Level 1',
     certNumber: 'SAQCC-NDT-L1-4411',
     level: 'Level 1',
-    certExpiryDate: '2027-12-01',
+    certExpiryDate: D.valid(),
     methods: ['UT'],
     defaultSupervisorId: 'insp-5',
-    notes: 'L1 UT under Amina Jacobs. Valid cert.'
+    notes: 'L1 UT under Amina Jacobs. Cert valid but vision expired — assignment blocked.'
   },
   {
     id: 'insp-15',
@@ -375,7 +419,7 @@ const workshopInspectorsBase: Inspector[] = [
     certification: 'ISO 9712 Level 2',
     certNumber: 'ISO-9712-ZA-2299',
     level: 'Level 2',
-    certExpiryDate: '2027-09-10',
+    certExpiryDate: D.valid(),
     methods: ['PT', 'MT', 'VT'],
     notes: 'Surface methods L2. Covers night-shift structural campaigns.'
   }
@@ -434,23 +478,52 @@ export const workshopInspectors: Inspector[] = workshopInspectorsBase.map(insp =
 
   // Vision / authorization demos (person-level assign gates)
   if (insp.id === 'insp-14') {
-    // Chris: valid UT L1 cert but EXPIRED vision — hard-block assign
+    // Chris: expired vision + pending renewal upload awaiting Admin (active expiry still expired → assign blocked)
     return {
       ...enriched,
-      visionAcuityExpiryDate: '2026-06-01',
-      notes: `${enriched.notes || ''} Vision acuity expired — assignment blocked until renew.`.trim()
+      visionAcuityExpiryDate: D.expired90(),
+      visionVerificationStatus: 'Verified' as const,
+      visionDocumentDataUrl: PLACEHOLDER_CERT_DOC,
+      visionDocumentFileName: 'vision-acuity-expired-demo.svg',
+      visionPendingSubmission: {
+        documentDataUrl: PLACEHOLDER_CERT_DOC,
+        documentFileName: 'vision-acuity-renewal-demo.svg',
+        proposedExpiryDate: D.valid(),
+        submittedAt: isoDateTime(daysFromToday(-1), 9, 0),
+        submittedByName: 'Chris van Wyk'
+      },
+      notes: `${enriched.notes || ''} Vision acuity expired — renewal uploaded, awaiting Admin verification.`.trim()
     };
   }
   if (insp.id === 'insp-8') {
-    // Mandla: vision due soon — warn
-    return { ...enriched, visionAcuityExpiryDate: '2026-09-28' };
+    // Mandla: due-soon Verified UT + pending renewal (assign still allowed with warning)
+    const methodCertificates = (enriched.methodCertificates || []).map(mc => {
+      if (mc.method !== 'UT') return mc;
+      return {
+        ...mc,
+        pendingSubmission: {
+          documentDataUrl: PLACEHOLDER_CERT_DOC,
+          documentFileName: 'UT-renewal-mandla-demo.svg',
+          proposedExpiryDate: D.valid(),
+          proposedCertNumber: mc.certNumber,
+          proposedIssueDate: daysFromToday(-30),
+          submittedAt: isoDateTime(daysFromToday(-2), 10, 0),
+          submittedByName: 'Mandla Khumalo'
+        }
+      };
+    });
+    return {
+      ...enriched,
+      visionAcuityExpiryDate: D.dueSoon14(),
+      methodCertificates
+    };
   }
   if (insp.id === 'insp-13') {
-    // Lindiwe: missing vision date — hard-block (MT cert otherwise OK / due soon)
-    const { visionAcuityExpiryDate: _drop, ...rest } = enriched;
+    const { visionAcuityExpiryDate: _drop, visionVerificationStatus: _vs, ...rest } = enriched;
     return {
       ...rest,
       visionAcuityExpiryDate: undefined,
+      visionVerificationStatus: undefined,
       notes: `${enriched.notes || ''} Near-vision date missing from employer file.`.trim()
     };
   }
@@ -473,9 +546,11 @@ function makeEquip(opts: {
   checkedOutTo?: string;
   checkedOutAt?: string;
 }): Equipment {
+  const today = todayISO();
+  const soon = dueSoonCutoff();
   const calStatus = opts.status || (
-    opts.calibrationExpiryDate < '2026-09-12' ? 'Expired'
-      : opts.calibrationExpiryDate <= '2026-10-12' ? 'Due Soon'
+    opts.calibrationExpiryDate < today ? 'Expired'
+      : opts.calibrationExpiryDate <= soon ? 'Due Soon'
       : 'Operational'
   );
   const certificateNumber = `CAL-SANAS-${opts.calibrationDate.slice(0, 4)}-${opts.id.replace(/\D/g, '').padStart(4, '0')}`;
@@ -526,9 +601,16 @@ function makeEquip(opts: {
   };
 }
 
-/** 33 equipment items — UT / MT / PT / VT / General, mixed cal states */
+/** Cal helper: expiry offset days from today → cal date = expiry − 365d */
+function calPair(expiryOffset: number): { calibrationDate: string; calibrationExpiryDate: string } {
+  return {
+    calibrationDate: D.calStart(expiryOffset),
+    calibrationExpiryDate: daysFromToday(expiryOffset)
+  };
+}
+
+/** 33 equipment items — UT / MT / PT / VT / General, mixed cal states (~70/20/10) */
 export const workshopEquipment: Equipment[] = [
-  // Keep original demo IDs with richer fields for jobs
   {
     ...makeEquip({
       id: 'eq-1',
@@ -536,29 +618,28 @@ export const workshopEquipment: Equipment[] = [
       type: 'Ultrasonic Thickness Gauge',
       serialNumber: 'SN-OLY-27MG-9482',
       category: 'Ultrasonic',
-      calibrationDate: '2026-03-01',
-      calibrationExpiryDate: '2027-03-01',
-      notes: 'Primary UT gauge. 5-step CS block verified.'
+      ...calPair(SEED_OFFSETS.VALID),
+      notes: 'Primary UT gauge. 5-step CS block verified. Happy-path assign gear.'
     }),
     calibrationCertificate: {
-      certificateNumber: 'CAL-SANAS-2026-0183',
+      certificateNumber: 'CAL-SANAS-DEMO-0183',
       laboratory: 'Fluke Calibration Lab (SANAS Accredited)',
       documentDataUrl: PLACEHOLDER_CAL_DOC,
       documentFileName: 'SN-OLY-27MG-9482-cal-cert-demo.svg',
-      uploadedAt: '2026-03-01T09:00:00.000Z'
+      uploadedAt: isoDateTime(daysFromToday(SEED_OFFSETS.VALID - 365))
     },
     calibrationHistory: [
       {
         id: 'cal-eq1-1',
-        calDate: '2026-03-01',
-        calExpiryDate: '2027-03-01',
-        certificateNumber: 'CAL-SANAS-2026-0183',
+        calDate: daysFromToday(SEED_OFFSETS.VALID - 365),
+        calExpiryDate: daysFromToday(SEED_OFFSETS.VALID),
+        certificateNumber: 'CAL-SANAS-DEMO-0183',
         laboratory: 'Fluke Calibration Lab (SANAS Accredited)',
         referenceStandard: '5-step carbon steel step wedge (2.5mm – 20mm)',
         performedBy: 'K. Naidoo (SANAS Metrologist)',
         result: 'PASS',
         notes: 'Zero-drift verified across all ranges.',
-        timestamp: '2026-03-01T09:00:00.000Z'
+        timestamp: isoDateTime(daysFromToday(SEED_OFFSETS.VALID - 365))
       }
     ]
   },
@@ -569,14 +650,14 @@ export const workshopEquipment: Equipment[] = [
       type: 'Electromagnetic AC/DC Yoke',
       serialNumber: 'SN-PKR-B300-4821',
       category: 'Magnetic Particle',
-      calibrationDate: '2026-04-10',
-      calibrationExpiryDate: '2026-09-25',
+      // Valid long enough for happy-path MT complete; On Job for job-2
+      ...calPair(SEED_OFFSETS.VALID_NEAR),
       checkoutStatus: 'On Job',
       currentJobId: 'job-2',
       currentJobNumber: 'NDT-2026-0002',
       checkedOutTo: 'Thabo Mokoena',
-      checkedOutAt: '2026-09-11T07:30:00.000Z',
-      notes: 'Due soon. Deployed on job-2.'
+      checkedOutAt: isoDateTime(daysFromToday(-1), 7, 30),
+      notes: 'Deployed on job-2 (In Progress MT). Happy-path complete gear.'
     })
   },
   {
@@ -586,46 +667,45 @@ export const workshopEquipment: Equipment[] = [
       type: 'Dye Penetrant System & Light Meter',
       serialNumber: 'SN-MAG-SKL-0192',
       category: 'Liquid Penetrant',
-      calibrationDate: '2025-08-01',
-      calibrationExpiryDate: '2026-08-01',
+      ...calPair(SEED_OFFSETS.EXPIRED_60),
       status: 'Out of Service',
       checkoutStatus: 'Incident Reported',
       notes: 'Expired cal + open incident — locked out of Available pool.'
     }),
     checkoutStatus: 'Incident Reported'
   },
-  makeEquip({ id: 'eq-4', name: 'Olympus Epoch 650 Flaw Detector', type: 'Ultrasonic Flaw Detector', serialNumber: 'SN-OLY-EP650-1102', category: 'Ultrasonic', calibrationDate: '2026-01-15', calibrationExpiryDate: '2027-01-15' }),
-  makeEquip({ id: 'eq-5', name: 'GE DMS Go+ Thickness Gauge', type: 'Ultrasonic Thickness Gauge', serialNumber: 'SN-GE-DMS-7741', category: 'Ultrasonic', calibrationDate: '2025-06-01', calibrationExpiryDate: '2026-06-01', notes: 'EXPIRED — do not deploy.' }),
-  makeEquip({ id: 'eq-6', name: 'Sonatest Sitescan D-50', type: 'Ultrasonic Flaw Detector', serialNumber: 'SN-SON-D50-3310', category: 'Ultrasonic', calibrationDate: '2026-05-20', calibrationExpiryDate: '2026-10-01', notes: 'Cal due soon.' }),
-  makeEquip({ id: 'eq-7', name: 'Dakota Ultrasonics ZX-6', type: 'Ultrasonic Thickness Gauge', serialNumber: 'SN-DAK-ZX6-8820', category: 'Ultrasonic', calibrationDate: '2026-07-01', calibrationExpiryDate: '2027-07-01' }),
-  makeEquip({ id: 'eq-8', name: 'Olympus 38DL Plus', type: 'Ultrasonic Thickness Gauge', serialNumber: 'SN-OLY-38DL-2291', category: 'Ultrasonic', calibrationDate: '2026-02-10', calibrationExpiryDate: '2027-02-10' }),
-  makeEquip({ id: 'eq-9', name: 'Krautkramer USM Go', type: 'Ultrasonic Flaw Detector', serialNumber: 'SN-KK-USMGO-4412', category: 'Ultrasonic', calibrationDate: '2025-11-01', calibrationExpiryDate: '2026-05-01', notes: 'EXPIRED.' }),
-  makeEquip({ id: 'eq-10', name: 'Cygnus 4+ Underwater Gauge', type: 'Ultrasonic Thickness Gauge', serialNumber: 'SN-CYG-4P-0199', category: 'Ultrasonic', calibrationDate: '2026-04-01', calibrationExpiryDate: '2027-04-01', notes: 'Splash-zone / marine work.' }),
+  makeEquip({ id: 'eq-4', name: 'Olympus Epoch 650 Flaw Detector', type: 'Ultrasonic Flaw Detector', serialNumber: 'SN-OLY-EP650-1102', category: 'Ultrasonic', ...calPair(SEED_OFFSETS.VALID) }),
+  makeEquip({ id: 'eq-5', name: 'GE DMS Go+ Thickness Gauge', type: 'Ultrasonic Thickness Gauge', serialNumber: 'SN-GE-DMS-7741', category: 'Ultrasonic', ...calPair(SEED_OFFSETS.EXPIRED_90), notes: 'EXPIRED — do not deploy.' }),
+  makeEquip({ id: 'eq-6', name: 'Sonatest Sitescan D-50', type: 'Ultrasonic Flaw Detector', serialNumber: 'SN-SON-D50-3310', category: 'Ultrasonic', ...calPair(SEED_OFFSETS.DUE_SOON_21), notes: 'Cal due soon.' }),
+  makeEquip({ id: 'eq-7', name: 'Dakota Ultrasonics ZX-6', type: 'Ultrasonic Thickness Gauge', serialNumber: 'SN-DAK-ZX6-8820', category: 'Ultrasonic', ...calPair(SEED_OFFSETS.VALID_LONG) }),
+  makeEquip({ id: 'eq-8', name: 'Olympus 38DL Plus', type: 'Ultrasonic Thickness Gauge', serialNumber: 'SN-OLY-38DL-2291', category: 'Ultrasonic', ...calPair(SEED_OFFSETS.VALID) }),
+  makeEquip({ id: 'eq-9', name: 'Krautkramer USM Go', type: 'Ultrasonic Flaw Detector', serialNumber: 'SN-KK-USMGO-4412', category: 'Ultrasonic', ...calPair(SEED_OFFSETS.EXPIRED_180), notes: 'EXPIRED.' }),
+  makeEquip({ id: 'eq-10', name: 'Cygnus 4+ Underwater Gauge', type: 'Ultrasonic Thickness Gauge', serialNumber: 'SN-CYG-4P-0199', category: 'Ultrasonic', ...calPair(SEED_OFFSETS.VALID_NEAR), notes: 'Splash-zone / marine work.' }),
 
-  makeEquip({ id: 'eq-11', name: 'Magnaflux Y-7 AC/DC Yoke', type: 'Electromagnetic Yoke', serialNumber: 'SN-MAG-Y7-5521', category: 'Magnetic Particle', calibrationDate: '2026-03-15', calibrationExpiryDate: '2027-03-15' }),
-  makeEquip({ id: 'eq-12', name: 'Parker DA-400 Contour Probe', type: 'Electromagnetic Yoke', serialNumber: 'SN-PKR-DA400-1188', category: 'Magnetic Particle', calibrationDate: '2025-09-01', calibrationExpiryDate: '2026-09-01', notes: 'EXPIRED.' }),
-  makeEquip({ id: 'eq-13', name: 'Johnson & Allen Articulated Yoke', type: 'AC Articulated Yoke', serialNumber: 'SN-JA-ART-9033', category: 'Magnetic Particle', calibrationDate: '2026-06-01', calibrationExpiryDate: '2026-10-08', notes: 'Due soon.' }),
-  makeEquip({ id: 'eq-14', name: 'Magnaflux MB-122 Permanent Magnet', type: 'Permanent Magnet Yoke', serialNumber: 'SN-MAG-MB122-4410', category: 'Magnetic Particle', calibrationDate: '2026-01-20', calibrationExpiryDate: '2027-01-20' }),
-  makeEquip({ id: 'eq-15', name: 'Tiede WE Universal Yoke', type: 'Electromagnetic Yoke', serialNumber: 'SN-TIE-WE-7722', category: 'Magnetic Particle', calibrationDate: '2026-08-01', calibrationExpiryDate: '2027-08-01' }),
-  makeEquip({ id: 'eq-16', name: 'Parker B310DC Dry Powder Kit', type: 'DC Yoke + Dry Powder', serialNumber: 'SN-PKR-B310-6611', category: 'Magnetic Particle', calibrationDate: '2025-12-15', calibrationExpiryDate: '2026-06-15', notes: 'EXPIRED.' }),
+  makeEquip({ id: 'eq-11', name: 'Magnaflux Y-7 AC/DC Yoke', type: 'Electromagnetic Yoke', serialNumber: 'SN-MAG-Y7-5521', category: 'Magnetic Particle', ...calPair(SEED_OFFSETS.VALID) }),
+  makeEquip({ id: 'eq-12', name: 'Parker DA-400 Contour Probe', type: 'Electromagnetic Yoke', serialNumber: 'SN-PKR-DA400-1188', category: 'Magnetic Particle', ...calPair(SEED_OFFSETS.EXPIRED_30), notes: 'EXPIRED.' }),
+  makeEquip({ id: 'eq-13', name: 'Johnson & Allen Articulated Yoke', type: 'AC Articulated Yoke', serialNumber: 'SN-JA-ART-9033', category: 'Magnetic Particle', ...calPair(SEED_OFFSETS.DUE_SOON_14), notes: 'Due soon.' }),
+  makeEquip({ id: 'eq-14', name: 'Magnaflux MB-122 Permanent Magnet', type: 'Permanent Magnet Yoke', serialNumber: 'SN-MAG-MB122-4410', category: 'Magnetic Particle', ...calPair(SEED_OFFSETS.VALID) }),
+  makeEquip({ id: 'eq-15', name: 'Tiede WE Universal Yoke', type: 'Electromagnetic Yoke', serialNumber: 'SN-TIE-WE-7722', category: 'Magnetic Particle', ...calPair(SEED_OFFSETS.VALID_LONG) }),
+  makeEquip({ id: 'eq-16', name: 'Parker B310DC Dry Powder Kit', type: 'DC Yoke + Dry Powder', serialNumber: 'SN-PKR-B310-6611', category: 'Magnetic Particle', ...calPair(SEED_OFFSETS.EXPIRED_60), notes: 'EXPIRED.' }),
 
-  makeEquip({ id: 'eq-17', name: 'Magnaflux SKL-SP2 Visible PT Kit', type: 'Visible Dye Penetrant Kit', serialNumber: 'SN-MAG-SKL-2201', category: 'Liquid Penetrant', calibrationDate: '2026-05-01', calibrationExpiryDate: '2027-05-01' }),
-  makeEquip({ id: 'eq-18', name: 'Sherwin DP-50 Fluorescent PT Kit', type: 'Fluorescent Penetrant System', serialNumber: 'SN-SHW-DP50-3390', category: 'Liquid Penetrant', calibrationDate: '2026-02-01', calibrationExpiryDate: '2026-09-30', notes: 'Due soon — UV intensity check required.' }),
-  makeEquip({ id: 'eq-19', name: 'Ardrox 996P Penetrant Station', type: 'Penetrant Process Kit', serialNumber: 'SN-ARD-996P-1108', category: 'Liquid Penetrant', calibrationDate: '2025-07-01', calibrationExpiryDate: '2026-07-01', notes: 'EXPIRED.' }),
-  makeEquip({ id: 'eq-20', name: 'Magnaflux ZB-100F UV Lamp', type: 'UV-A Inspection Lamp', serialNumber: 'SN-MAG-ZB100-5544', category: 'Liquid Penetrant', calibrationDate: '2026-07-15', calibrationExpiryDate: '2027-07-15' }),
-  makeEquip({ id: 'eq-21', name: 'Spectroline OPTIMAX 365', type: 'UV-A LED Lamp', serialNumber: 'SN-SPL-OPT365-8821', category: 'Liquid Penetrant', calibrationDate: '2026-03-01', calibrationExpiryDate: '2026-10-05', notes: 'Due soon.' }),
+  makeEquip({ id: 'eq-17', name: 'Magnaflux SKL-SP2 Visible PT Kit', type: 'Visible Dye Penetrant Kit', serialNumber: 'SN-MAG-SKL-2201', category: 'Liquid Penetrant', ...calPair(SEED_OFFSETS.VALID) }),
+  makeEquip({ id: 'eq-18', name: 'Sherwin DP-50 Fluorescent PT Kit', type: 'Fluorescent Penetrant System', serialNumber: 'SN-SHW-DP50-3390', category: 'Liquid Penetrant', ...calPair(SEED_OFFSETS.DUE_SOON_28), notes: 'Due soon — UV intensity check required.' }),
+  makeEquip({ id: 'eq-19', name: 'Ardrox 996P Penetrant Station', type: 'Penetrant Process Kit', serialNumber: 'SN-ARD-996P-1108', category: 'Liquid Penetrant', ...calPair(SEED_OFFSETS.EXPIRED_90), notes: 'EXPIRED.' }),
+  makeEquip({ id: 'eq-20', name: 'Magnaflux ZB-100F UV Lamp', type: 'UV-A Inspection Lamp', serialNumber: 'SN-MAG-ZB100-5544', category: 'Liquid Penetrant', ...calPair(SEED_OFFSETS.VALID_LONG) }),
+  makeEquip({ id: 'eq-21', name: 'Spectroline OPTIMAX 365', type: 'UV-A LED Lamp', serialNumber: 'SN-SPL-OPT365-8821', category: 'Liquid Penetrant', ...calPair(SEED_OFFSETS.DUE_SOON_21), notes: 'Due soon.' }),
 
-  makeEquip({ id: 'eq-22', name: 'Extech LT300 Lux Meter', type: 'Illuminance Meter', serialNumber: 'SN-EXT-LT300-1919', category: 'Visual / Optical', calibrationDate: '2026-04-12', calibrationExpiryDate: '2027-04-12' }),
-  makeEquip({ id: 'eq-23', name: 'Testo 540 Lux Meter', type: 'Illuminance Meter', serialNumber: 'SN-TES-540-2288', category: 'Visual / Optical', calibrationDate: '2025-10-01', calibrationExpiryDate: '2026-04-01', notes: 'EXPIRED.' }),
-  makeEquip({ id: 'eq-24', name: 'Olympus IPLEX GX Borescope', type: 'Video Borescope', serialNumber: 'SN-OLY-IPLEX-7701', category: 'Visual / Optical', calibrationDate: '2026-06-20', calibrationExpiryDate: '2027-06-20' }),
-  makeEquip({ id: 'eq-25', name: 'Mitutoyo Digimatic Vernier 150mm', type: 'Digital Vernier Caliper', serialNumber: 'SN-MIT-DIG-150-4412', category: 'Visual / Optical', calibrationDate: '2026-01-10', calibrationExpiryDate: '2027-01-10' }),
-  makeEquip({ id: 'eq-26', name: 'Elcometer 224 Surface Profile Gauge', type: 'Surface Profile Gauge', serialNumber: 'SN-ELC-224-9090', category: 'Visual / Optical', calibrationDate: '2026-08-01', calibrationExpiryDate: '2026-10-10', notes: 'Due soon.' }),
+  makeEquip({ id: 'eq-22', name: 'Extech LT300 Lux Meter', type: 'Illuminance Meter', serialNumber: 'SN-EXT-LT300-1919', category: 'Visual / Optical', ...calPair(SEED_OFFSETS.VALID) }),
+  makeEquip({ id: 'eq-23', name: 'Testo 540 Lux Meter', type: 'Illuminance Meter', serialNumber: 'SN-TES-540-2288', category: 'Visual / Optical', ...calPair(SEED_OFFSETS.EXPIRED_90), notes: 'EXPIRED.' }),
+  makeEquip({ id: 'eq-24', name: 'Olympus IPLEX GX Borescope', type: 'Video Borescope', serialNumber: 'SN-OLY-IPLEX-7701', category: 'Visual / Optical', ...calPair(SEED_OFFSETS.VALID) }),
+  makeEquip({ id: 'eq-25', name: 'Mitutoyo Digimatic Vernier 150mm', type: 'Digital Vernier Caliper', serialNumber: 'SN-MIT-DIG-150-4412', category: 'Visual / Optical', ...calPair(SEED_OFFSETS.VALID) }),
+  makeEquip({ id: 'eq-26', name: 'Elcometer 224 Surface Profile Gauge', type: 'Surface Profile Gauge', serialNumber: 'SN-ELC-224-9090', category: 'Visual / Optical', ...calPair(SEED_OFFSETS.DUE_SOON_14), notes: 'Due soon.' }),
 
-  makeEquip({ id: 'eq-27', name: '5-Step CS Calibration Block #A', type: 'UT Reference Block', serialNumber: 'SN-BLK-CS5-001', category: 'General', calibrationDate: '2026-01-01', calibrationExpiryDate: '2028-01-01', notes: 'Workshop master step wedge.' }),
-  makeEquip({ id: 'eq-28', name: '5-Step CS Calibration Block #B', type: 'UT Reference Block', serialNumber: 'SN-BLK-CS5-002', category: 'General', calibrationDate: '2025-01-01', calibrationExpiryDate: '2026-01-01', notes: 'EXPIRED — quarantine.' }),
-  makeEquip({ id: 'eq-29', name: 'IIW V1 Calibration Block', type: 'UT Calibration Block', serialNumber: 'SN-BLK-IIWV1-014', category: 'General', calibrationDate: '2026-05-01', calibrationExpiryDate: '2028-05-01' }),
-  makeEquip({ id: 'eq-30', name: 'ASME Piping Calibration Block', type: 'UT Piping Cal Block', serialNumber: 'SN-BLK-ASME-P88', category: 'General', calibrationDate: '2026-03-01', calibrationExpiryDate: '2027-03-01' }),
-  makeEquip({ id: 'eq-31', name: '10 lb AC Lift Test Weight', type: 'MT Lift Test Standard', serialNumber: 'SN-MT-LIFT-10LB', category: 'General', calibrationDate: '2026-02-01', calibrationExpiryDate: '2027-02-01' }),
-  makeEquip({ id: 'eq-32', name: 'Pie Field Indicator Gauge Set', type: 'MT Field Indicator', serialNumber: 'SN-MT-PIE-07', category: 'General', calibrationDate: '2026-07-01', calibrationExpiryDate: '2027-07-01' }),
-  makeEquip({ id: 'eq-33', name: 'Workshop Digital Thermometer', type: 'Surface / Ambient Thermometer', serialNumber: 'SN-TMP-WS-112', category: 'General', calibrationDate: '2026-06-01', calibrationExpiryDate: '2026-09-25', notes: 'Due soon — used for WEP temp checks.' })
+  makeEquip({ id: 'eq-27', name: '5-Step CS Calibration Block #A', type: 'UT Reference Block', serialNumber: 'SN-BLK-CS5-001', category: 'General', ...calPair(SEED_OFFSETS.VALID_LONG), notes: 'Workshop master step wedge.' }),
+  makeEquip({ id: 'eq-28', name: '5-Step CS Calibration Block #B', type: 'UT Reference Block', serialNumber: 'SN-BLK-CS5-002', category: 'General', ...calPair(SEED_OFFSETS.EXPIRED_180), notes: 'EXPIRED — quarantine.' }),
+  makeEquip({ id: 'eq-29', name: 'IIW V1 Calibration Block', type: 'UT Calibration Block', serialNumber: 'SN-BLK-IIWV1-014', category: 'General', ...calPair(SEED_OFFSETS.VALID_LONG) }),
+  makeEquip({ id: 'eq-30', name: 'ASME Piping Calibration Block', type: 'UT Piping Cal Block', serialNumber: 'SN-BLK-ASME-P88', category: 'General', ...calPair(SEED_OFFSETS.VALID) }),
+  makeEquip({ id: 'eq-31', name: '10 lb AC Lift Test Weight', type: 'MT Lift Test Standard', serialNumber: 'SN-MT-LIFT-10LB', category: 'General', ...calPair(SEED_OFFSETS.VALID) }),
+  makeEquip({ id: 'eq-32', name: 'Pie Field Indicator Gauge Set', type: 'MT Field Indicator', serialNumber: 'SN-MT-PIE-07', category: 'General', ...calPair(SEED_OFFSETS.VALID_LONG) }),
+  makeEquip({ id: 'eq-33', name: 'Workshop Digital Thermometer', type: 'Surface / Ambient Thermometer', serialNumber: 'SN-TMP-WS-112', category: 'General', ...calPair(SEED_OFFSETS.DUE_SOON_28), notes: 'Due soon — used for WEP temp checks.' })
 ];

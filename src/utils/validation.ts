@@ -580,6 +580,19 @@ export function validateJobForL1Submit(
   return { canComplete: errors.length === 0, errors, warnings };
 }
 
+/** Outer CTA gate: same as submit validation but signature is collected in the modal. */
+export function validateJobForL1SubmitPreflight(
+  job: Job,
+  inspector?: Inspector,
+  equipmentList?: Equipment[]
+): JobCompletionValidation {
+  return validateJobForL1Submit(
+    { ...job, signatureDataUrl: job.signatureDataUrl || 'preflight' },
+    inspector,
+    equipmentList
+  );
+}
+
 export function validateSupervisorReject(reason: string): JobCompletionValidation {
   const errors: string[] = [];
   if (!reason.trim()) {
@@ -644,6 +657,25 @@ export function validateJobForSupervisorComplete(
   return { canComplete: errors.length === 0, errors, warnings };
 }
 
+/** Outer CTA gate: supervisor signature is collected in the modal. */
+export function validateJobForSupervisorCompletePreflight(
+  job: Job,
+  supervisor?: Inspector,
+  equipmentList?: Equipment[],
+  actorInspectorId?: string
+): JobCompletionValidation {
+  return validateJobForSupervisorComplete(
+    {
+      ...job,
+      signatureDataUrl: job.signatureDataUrl || 'preflight',
+      supervisorSignatureDataUrl: job.supervisorSignatureDataUrl || 'preflight'
+    },
+    supervisor,
+    equipmentList,
+    actorInspectorId
+  );
+}
+
 export function validateJobForCompletion(
   job: Job,
   inspector?: Inspector,
@@ -698,6 +730,21 @@ export function validateJobForCompletion(
   pushEquipmentWarnings(equipmentList, warnings);
 
   return { canComplete: errors.length === 0, errors, warnings };
+}
+
+/** Outer CTA gate: lead signature is collected in the modal. */
+export function validateJobForCompletionPreflight(
+  job: Job,
+  inspector?: Inspector,
+  equipmentList?: Equipment[],
+  supervisor?: Inspector
+): JobCompletionValidation {
+  return validateJobForCompletion(
+    { ...job, signatureDataUrl: job.signatureDataUrl || 'preflight' },
+    inspector,
+    equipmentList,
+    supervisor
+  );
 }
 
 // ─── WEP / criteria advisory compare (never auto-writes Pass/Fail) ───────────

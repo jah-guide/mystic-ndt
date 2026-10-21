@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import {
   Briefcase, CheckCircle2, Clock, Search, ChevronRight, Calendar,
-  MapPin, UserCheck
+  MapPin, UserCheck, Award
 } from 'lucide-react';
 import { Job, Customer, Inspector, Equipment, CompanySettings } from '../../types';
 import { Badge } from '../common/Badge';
 import { formatDate } from '../../utils/formatters';
 import { deriveHighestVerifiedMethodLevel } from '../../utils/validation';
 import { JobDetailView } from './JobDetailView';
+import { MyCertificatesPanel } from './MyCertificatesPanel';
+import { inspectorHasAnyPendingSubmission } from '../../utils/certSubmissions';
 
 interface TechnicianDashboardProps {
   jobs: Job[];
@@ -17,6 +19,7 @@ interface TechnicianDashboardProps {
   settings: CompanySettings;
   currentInspectorId: string;
   onJobUpdated: (updatedJob: Job) => void;
+  onInspectorsUpdated?: () => void;
 }
 
 /** ISO 9712: only L2/L3 may supervise — L1 must never see a Supervise queue. */
@@ -32,10 +35,12 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
   equipment,
   settings,
   currentInspectorId,
-  onJobUpdated
+  onJobUpdated,
+  onInspectorsUpdated
 }) => {
   const currentInspector = inspectors.find(i => i.id === currentInspectorId);
   const showSuperviseTab = canShowSuperviseTab(currentInspector);
+  const certPending = currentInspector ? inspectorHasAnyPendingSubmission(currentInspector) : false;
 
   const toSuperviseJobs = showSuperviseTab
     ? jobs.filter(
@@ -49,10 +54,12 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
     : [];
 
   const [activeTab, setActiveTab] = useState<'my_jobs' | 'to_supervise' | 'completed'>('my_jobs');
+  const [showCertificates, setShowCertificates] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   useEffect(() => {
+    setShowCertificates(false);
     if (!showSuperviseTab) {
       setActiveTab('my_jobs');
       return;
@@ -95,7 +102,16 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
     return (
       <div
         key={job.id}
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${job.jobNumber}`}
         onClick={() => setSelectedJobId(job.id)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setSelectedJobId(job.id);
+          }
+        }}
         className={`group bg-slate-900 border rounded-2xl p-4 sm:p-5 shadow-lg transition-all cursor-pointer active:scale-99 ${
           isSuperviseCard
             ? 'border-violet-500/40 hover:border-violet-400/60 hover:shadow-violet-500/10'
@@ -195,11 +211,23 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
     );
   }
 
+  if (showCertificates && currentInspector) {
+    return (
+      <div className="max-w-3xl mx-auto px-3 sm:px-6 pb-24 pt-4">
+        <MyCertificatesPanel
+          inspector={currentInspector}
+          onClose={() => setShowCertificates(false)}
+          onUpdated={() => onInspectorsUpdated?.()}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl mx-auto px-3 sm:px-6 pb-24 pt-4">
       <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl mb-5">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wider text-sky-400">
                 {showSuperviseTab && toSuperviseJobs.length > 0 ? 'Supervisor Home' : 'Technician Cockpit'}
@@ -219,17 +247,30 @@ export const TechnicianDashboard: React.FC<TechnicianDashboardProps> = ({
             </p>
           </div>
 
-          <div className="text-right space-y-1">
-            <div>
-              <span className="text-2xl sm:text-3xl font-black text-sky-400">{activeJobs.length}</span>
-              <span className="text-[11px] uppercase font-bold text-slate-400 block">My Active</span>
-            </div>
-            {showSuperviseTab && (toSuperviseJobs.length > 0 || revisionJobs.length > 0) && (
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowCertificates(true)}
+              className="relative inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-600/20 border border-sky-500/40 text-sky-300 text-[11px] sm:text-xs font-bold hover:bg-sky-600/30"
+            >
+              <Award className="w-3.5 h-3.5" />
+              My certificates
+              {certPending && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-slate-900" aria-label="Pending Admin review" />
+              )}
+            </button>
+            <div className="text-right space-y-1">
               <div>
-                <span className="text-lg font-black text-violet-400">{toSuperviseJobs.length}</span>
-                <span className="text-[10px] uppercase font-bold text-violet-300/80 block">To Supervise</span>
+                <span className="text-2xl sm:text-3xl font-black text-sky-400">{activeJobs.length}</span>
+                <span className="text-[11px] uppercase font-bold text-slate-400 block">My Active</span>
               </div>
-            )}
+              {showSuperviseTab && (toSuperviseJobs.length > 0 || revisionJobs.length > 0) && (
+                <div>
+                  <span className="text-lg font-black text-violet-400">{toSuperviseJobs.length}</span>
+                  <span className="text-[10px] uppercase font-bold text-violet-300/80 block">To Supervise</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

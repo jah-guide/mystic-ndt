@@ -45,8 +45,6 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
   viewOnly = false,
   criteriaLibrary
 }) => {
-  useBodyScrollLock(isOpen);
-
   const [itemNumber, setItemNumber] = useState('');
   const [description, setDescription] = useState('');
   const [reading, setReading] = useState('');
@@ -65,7 +63,14 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
   const [photos, setPhotos] = useState<InspectionPhoto[]>([]);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [operatorNote, setOperatorNote] = useState('');
+  const [lightboxPhoto, setLightboxPhoto] = useState<{ dataUrl: string; caption?: string } | null>(null);
   const fieldsLocked = evaluateOnly || viewOnly;
+
+  useBodyScrollLock(isOpen || Boolean(lightboxPhoto));
+
+  useEffect(() => {
+    if (!isOpen) setLightboxPhoto(null);
+  }, [isOpen]);
 
   const libraryCriteria = (criteriaLibrary?.length
     ? criteriaLibrary
@@ -675,11 +680,18 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-2">
                 {photos.map((p, idx) => (
                   <div key={p.id} className="group relative bg-slate-950 rounded-xl border border-slate-800 p-2 overflow-hidden">
-                    <img
-                      src={p.dataUrl}
-                      alt={`Photo ${idx + 1}`}
-                      className="w-full h-24 object-cover rounded-lg bg-slate-900"
-                    />
+                    <button
+                      type="button"
+                      onClick={() => setLightboxPhoto({ dataUrl: p.dataUrl, caption: p.caption || `Photo ${idx + 1}` })}
+                      className="block w-full rounded-lg overflow-hidden border border-transparent hover:border-sky-400/50 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                      title="View full photo"
+                    >
+                      <img
+                        src={p.dataUrl}
+                        alt={p.caption || `Photo ${idx + 1}`}
+                        className="w-full h-24 object-cover rounded-lg bg-slate-900 cursor-zoom-in"
+                      />
+                    </button>
                     {!fieldsLocked && (
                     <button
                       type="button"
@@ -740,6 +752,38 @@ export const InspectionItemModal: React.FC<InspectionItemModalProps> = ({
         </div>
 
       </div>
+
+      {lightboxPhoto && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/95 backdrop-blur-sm p-4"
+          onClick={() => setLightboxPhoto(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Evidential photo"
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxPhoto(null)}
+            className="absolute top-4 right-4 p-2 rounded-xl bg-slate-800 text-white hover:bg-slate-700 border border-slate-600"
+            aria-label="Close photo"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <div
+            className="max-w-5xl max-h-[90vh] w-full flex flex-col items-center gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={lightboxPhoto.dataUrl}
+              alt={lightboxPhoto.caption || 'Evidential photo'}
+              className="max-h-[85vh] max-w-full object-contain rounded-xl border border-slate-700 shadow-2xl"
+            />
+            {lightboxPhoto.caption && (
+              <p className="text-sm text-slate-300 font-medium text-center">{lightboxPhoto.caption}</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -231,6 +231,7 @@ export const Level3Dashboard: React.FC<Level3DashboardProps> = ({
 
       {reviewingJob && (
         <Level3ReviewModal
+          key={`${reviewingJob.id}-open`}
           isOpen={Boolean(reviewingJob)}
           onClose={() => setReviewingJob(undefined)}
           job={reviewingJob}

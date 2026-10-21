@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
-  X, Plus, AlertTriangle, CheckCircle2, UserCheck, Link, ChevronLeft, ChevronRight, Search
+  X, Plus, Edit3, AlertTriangle, CheckCircle2, UserCheck, Link, ChevronLeft, ChevronRight, Search
 } from 'lucide-react';
 import { Job, Customer, Inspector, Equipment, NdtMethod, AuditEntry, NdtProcedure } from '../../types';
 import { StorageService } from '../../services/storage';
@@ -23,7 +23,9 @@ import {
   filterInspectorsByQuery,
   equipmentForMethod,
   getEquipmentAssignState,
-  getAssignBlockers
+  getAssignBlockers,
+  getWizardOpenState,
+  type WizardStepId
 } from '../../utils/jobWizard';
 
 interface JobFormModalProps {
@@ -51,17 +53,40 @@ function buildSuggestedIds(
 export const JobFormModal: React.FC<JobFormModalProps> = ({
   isOpen, onClose, onJobCreated, customers, inspectors, equipment, procedures, existingJob
 }) => {
-  const [step, setStep] = useState(1);
+  // Modal remounts via key when create/edit target changes — compute once per open.
+  const openState = getWizardOpenState(
+    {
+      customerId: existingJob?.customerId || (customers[0]?.id || ''),
+      siteId:
+        existingJob?.siteId ||
+        (customers.find(c => c.id === existingJob?.customerId)?.sites[0]?.id ||
+          customers[0]?.sites[0]?.id ||
+          ''),
+      method: existingJob?.method || 'UT',
+      inspectionDate: existingJob?.inspectionDate || todayKey(),
+      inspectorId: existingJob?.inspectorId || '',
+      supervisorId: existingJob?.supervisorId || '',
+      linkedProcedureId: existingJob?.procedureId || '',
+      equipmentIds: existingJob?.equipmentIds || [],
+      inspectors,
+      scope: existingJob?.scope
+    },
+    existingJob?.status
+  );
+
+  const [step, setStep] = useState<WizardStepId>(openState.initialStep);
+  const [unlockedMax, setUnlockedMax] = useState<WizardStepId>(openState.unlockedMax);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const freeNavigate = openState.freeNavigate;
   const [jobNumber] = useState(existingJob?.jobNumber || StorageService.generateNextJobNumber());
   const [customerId, setCustomerId] = useState(existingJob?.customerId || (customers[0]?.id || ''));
   const selectedCustomer = customers.find(c => c.id === customerId);
   const sites = selectedCustomer?.sites || [];
   const [siteId, setSiteId] = useState(existingJob?.siteId || (sites[0]?.id || ''));
   const [inspectionDate, setInspectionDate] = useState(() => {
-    const today = todayKey();
-    const existing = existingJob?.inspectionDate;
-    if (existing && existing >= today) return existing;
-    return today;
+    // Preserve booked date on edit (incl. past seed jobs); create defaults to today.
+    if (existingJob?.inspectionDate) return existingJob.inspectionDate;
+    return todayKey();
   });
   const [dueDate, setDueDate] = useState(() => {
     const insp = existingJob?.inspectionDate || todayKey();
@@ -93,6 +118,18 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
   const [equipQuery, setEquipQuery] = useState('');
 
   useBodyScrollLock(isOpen);
+
+  const goToStep = (next: WizardStepId) => {
+    if (next > unlockedMax && !freeNavigate) return;
+    setStep(next);
+  };
+
+  const advanceStep = () => {
+    if (step >= 5) return;
+    const next = (step + 1) as WizardStepId;
+    setUnlockedMax(prev => (next > prev ? next : prev));
+    setStep(next);
+  };
 
   const today = todayKey();
   const dueMinDate = inspectionDate ? addDaysToKey(inspectionDate, 1) : undefined;
@@ -208,8 +245,14 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
 
   const tryClose = () => {
     if (step > 1 || inspectorId || linkedProcedureId || equipmentIds.length > 0) {
-      if (!window.confirm('Close wizard? Unsaved changes will be lost.')) return;
+      setShowCloseConfirm(true);
+      return;
     }
+    onClose();
+  };
+
+  const confirmClose = () => {
+    setShowCloseConfirm(false);
     onClose();
   };
 
@@ -405,11 +448,11 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4 overflow-hidden">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[94vh] overflow-hidden">
+      <div className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[94vh] overflow-hidden relative">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center shrink-0">
-              <Plus className="w-5 h-5" />
+              {existingJob ? <Edit3 className="w-4 h-4" /> : <Plus className="w-5 h-5" />}
             </div>
             <div className="min-w-0">
               <h3 className="font-bold text-base text-white">{title}</h3>
@@ -421,20 +464,59 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
           </button>
         </div>
 
+        {showCloseConfirm && (
+          <div
+            className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wizard-close-title"
+          >
+            <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 id="wizard-close-title" className="font-bold text-white text-sm">Close wizard?</h4>
+                  <p className="text-sm text-slate-400 mt-1">
+                    Unsaved changes will be lost. Save as draft first if you want to keep this work.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCloseConfirm(false)}
+                  className="px-3.5 py-2 rounded-xl border border-slate-700 text-slate-200 text-sm font-semibold hover:bg-slate-800"
+                >
+                  Keep editing
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmClose}
+                  className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-sm font-bold"
+                >
+                  Discard & close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="px-5 pt-3 pb-2 border-b border-slate-800/80 flex gap-1 overflow-x-auto">
           {WIZARD_STEPS.map(s => {
-            const done = s.id < step;
+            const reachable = freeNavigate || s.id <= unlockedMax;
             const current = s.id === step;
             return (
               <button
                 key={s.id}
                 type="button"
-                disabled={s.id > step}
-                onClick={() => s.id < step && setStep(s.id)}
+                disabled={!reachable}
+                onClick={() => goToStep(s.id)}
                 className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold shrink-0 transition-colors ${
                   current
                     ? 'bg-sky-600 text-white'
-                    : done
+                    : reachable
                     ? 'bg-slate-800 text-sky-300 hover:bg-slate-700'
                     : 'bg-slate-950 text-slate-600 cursor-not-allowed'
                 }`}
@@ -450,7 +532,16 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
             <div className="space-y-4">
               <h4 className="text-sm font-black text-white uppercase tracking-wide">Work</h4>
               <p className="text-xs text-slate-400">
-                After these fields are set, use <span className="text-slate-200 font-semibold">Save draft</span> anytime in the footer — you do not need to finish People / Procedure / Equipment first.
+                {freeNavigate ? (
+                  <>
+                    This job already has setup data — use the step tabs to jump freely. Changes save from Review
+                    {editingNonDraft ? ' (Save changes)' : ' or Assign'}.
+                  </>
+                ) : (
+                  <>
+                    After these fields are set, use <span className="text-slate-200 font-semibold">Save draft</span> anytime in the footer — you do not need to finish People / Procedure / Equipment first.
+                  </>
+                )}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -804,7 +895,7 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
                 <div key={block.step} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3.5 py-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] font-bold uppercase text-slate-500">{block.label}</span>
-                    <button type="button" onClick={() => setStep(block.step)} className="text-[11px] font-bold text-sky-400">
+                    <button type="button" onClick={() => goToStep(block.step as WizardStepId)} className="text-[11px] font-bold text-sky-400">
                       Edit
                     </button>
                   </div>
@@ -831,7 +922,7 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
         <div className="px-5 py-3 border-t border-slate-800 flex items-center justify-between gap-2 flex-wrap">
           <button
             type="button"
-            onClick={() => (step === 1 ? tryClose() : setStep(step - 1))}
+            onClick={() => (step === 1 ? tryClose() : goToStep((step - 1) as WizardStepId))}
             className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-slate-700 text-slate-300 text-sm font-semibold hover:bg-slate-800"
           >
             {step === 1 ? 'Cancel' : <><ChevronLeft className="w-4 h-4" /> Back</>}
@@ -854,7 +945,7 @@ export const JobFormModal: React.FC<JobFormModalProps> = ({
               <button
                 type="button"
                 disabled={step === 1 && !step1Valid}
-                onClick={() => setStep(step + 1)}
+                onClick={advanceStep}
                 className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-bold disabled:opacity-40"
               >
                 Next <ChevronRight className="w-4 h-4" />

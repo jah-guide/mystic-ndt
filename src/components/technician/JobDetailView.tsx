@@ -7,7 +7,7 @@ import {
 import { Job, Customer, Inspector, Equipment, InspectionItem, CompanySettings, AuditEntry, UserRole, JobViewerRole } from '../../types';
 import { Badge } from '../common/Badge';
 import { formatDate, formatDateTime } from '../../utils/formatters';
-import { checkExpiry, calculateOverallResult, isItemEvaluated, canEditFindings, canEvaluateItems, canRejectToL1, canSubmitAsL1, canStartWork, isAssignedSupervisor, snapshotFindingsRevision, resetItemEvaluations, validateSupervisorReject, clearL3CertificationFields, clearFieldCompletionFields, isL3Certified, canReopenJob, compareJobTempToProcedure, isLevel1ForMethod, getMethodCertificate } from '../../utils/validation';
+import { checkExpiry, calculateOverallResult, isItemEvaluated, canEditFindings, canEvaluateItems, canRejectToL1, canSubmitAsL1, canStartWork, isAssignedSupervisor, snapshotFindingsRevision, resetItemEvaluations, validateSupervisorReject, clearL3CertificationFields, clearFieldCompletionFields, isL3Certified, canReopenJob, compareJobTempToProcedure, isLevel1ForMethod, getMethodCertificate, validateJobForL1SubmitPreflight, validateJobForSupervisorCompletePreflight, validateJobForCompletionPreflight } from '../../utils/validation';
 import { ensureProcedureSnapshotOnJob, getJobProcedureView, replaceProcedureSnapshot } from '../../utils/procedureSnapshot';
 import { InspectionItemModal } from './InspectionItemModal';
 import { CompleteInspectionModal, CompleteModalMode } from './CompleteInspectionModal';
@@ -118,6 +118,15 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
     : allowCompleteSupervised
     ? 'supervisor_complete'
     : 'lead_complete';
+
+  const completePreflight =
+    completeMode === 'l1_submit'
+      ? validateJobForL1SubmitPreflight(job, inspector, equipmentList)
+      : completeMode === 'supervisor_complete'
+      ? validateJobForSupervisorCompletePreflight(job, supervisor, equipmentList, viewerInspectorId)
+      : validateJobForCompletionPreflight(job, inspector, equipmentList, supervisor);
+  const canOpenCompleteModal = completePreflight.canComplete;
+  const completePreflightHint = completePreflight.errors[0];
 
   const showPrimaryAction = allowSubmitL1 || allowCompleteSupervised || allowCompleteIndependent;
   const allProcedures = StorageService.getProcedures();
@@ -908,7 +917,9 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
               </span>
             </h2>
             <p className="text-xs text-slate-400">
-              {job.status === 'Assigned'
+              {isCompleted
+                ? 'Inspection complete — findings and evaluation are locked'
+                : job.status === 'Assigned'
                 ? 'Start work before adding inspection points'
                 : isL1LeadJob && allowEditFindings
                 ? 'Record readings and indications — supervisor will evaluate Pass/Fail'
@@ -1005,7 +1016,11 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
             </div>
             <h3 className="font-bold text-sm text-white mb-1">No inspection items recorded yet</h3>
             <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4">
-              Tap the button below to add your first weld, pipe section, or inspection point.
+              {canAddItems
+                ? 'Tap the button below to add your first weld, pipe section, or inspection point.'
+                : job.status === 'Assigned'
+                ? 'Start work first — then you can add welds and inspection points on site.'
+                : 'Inspection points unlock when this job is in progress and findings are editable.'}
             </p>
             {canAddItems && (
               <button
@@ -1295,10 +1310,15 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsCompleteModalOpen(true)}
-                  className={`px-6 py-2.5 rounded-xl text-white font-bold text-xs sm:text-sm shadow-lg flex items-center gap-2 active:scale-95 transition-all ${
-                    completeMode === 'l1_submit'
-                      ? 'bg-gradient-to-r from-violet-600 to-fuchsia-500 hover:from-violet-500 hover:to-fuchsia-400 shadow-violet-500/25'
-                      : 'bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 shadow-emerald-500/25'
+                  disabled={!canOpenCompleteModal}
+                  title={!canOpenCompleteModal ? completePreflightHint : undefined}
+                  aria-disabled={!canOpenCompleteModal}
+                  className={`px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-lg flex items-center gap-2 transition-all ${
+                    !canOpenCompleteModal
+                      ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700 shadow-none'
+                      : completeMode === 'l1_submit'
+                      ? 'bg-gradient-to-r from-violet-600 to-fuchsia-500 hover:from-violet-500 hover:to-fuchsia-400 text-white shadow-violet-500/25 active:scale-95'
+                      : 'bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white shadow-emerald-500/25 active:scale-95'
                   }`}
                 >
                   <CheckCircle2 className="w-4 h-4" />
@@ -1460,6 +1480,7 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
       {/* Level 3 Review Modal (Guarded: Never accessible to technician) */}
       {userRole !== 'technician' && isL3ReviewModalOpen && (
         <Level3ReviewModal
+          key={`${job.id}-l3-open`}
           isOpen={isL3ReviewModalOpen}
           onClose={() => setIsL3ReviewModalOpen(false)}
           job={job}

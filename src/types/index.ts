@@ -110,12 +110,31 @@ export interface Inspector {
   notes?: string;
   /** Employer near-vision acuity expiry (YYYY-MM-DD) — assign hard-block if missing/expired */
   visionAcuityExpiryDate?: string;
+  /** Employer-held near-vision evidence file (active verified copy) */
+  visionDocumentDataUrl?: string;
+  visionDocumentFileName?: string;
+  /** Employer verification of vision file (default Verified when date set in seed) */
+  visionVerificationStatus?: MethodCertVerificationStatus;
+  visionRejectionReason?: string;
+  /** Employee renewal submission — does not replace active vision until Admin approves */
+  visionPendingSubmission?: CertDocumentSubmission;
   /** Employer operating authorization cleared (default true when undefined) */
   employerAuthorized?: boolean;
   authorizationNotes?: string;
 }
 
 export type MethodCertVerificationStatus = 'PendingVerification' | 'Verified' | 'Rejected';
+
+/** Employee-proposed document renewal awaiting employer verification. */
+export interface CertDocumentSubmission {
+  documentDataUrl: string;
+  documentFileName?: string;
+  proposedExpiryDate: string;
+  proposedCertNumber?: string;
+  proposedIssueDate?: string;
+  submittedAt: string;
+  submittedByName: string;
+}
 
 /** Employer-held method certificate record (upload + verify). Verified ≠ certification-body issuance. */
 export interface MethodCertificate {
@@ -132,6 +151,11 @@ export interface MethodCertificate {
   verifiedAt?: string;
   verifiedByName?: string;
   rejectionReason?: string;
+  /**
+   * Renewal upload while active Verified cert remains assignable.
+   * Cleared on Admin approve (merged into active) or reject.
+   */
+  pendingSubmission?: CertDocumentSubmission;
 }
 
 export interface CalibrationRecord {

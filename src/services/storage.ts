@@ -10,12 +10,12 @@ import { ensureProcedureSnapshotOnJob } from '../utils/procedureSnapshot';
 
 const STORAGE_KEYS = {
   SETTINGS: 'ndt_company_settings_v2',
-  CUSTOMERS: 'ndt_customers_v3',
-  INSPECTORS: 'ndt_inspectors_v6',
-  EQUIPMENT: 'ndt_equipment_v4',
-  JOBS: 'ndt_jobs_v9',
-  PROCEDURES: 'ndt_procedures_v2',
-  INCIDENTS: 'ndt_incidents_v1',
+  CUSTOMERS: 'ndt_customers_v4',
+  INSPECTORS: 'ndt_inspectors_v8',
+  EQUIPMENT: 'ndt_equipment_v5',
+  JOBS: 'ndt_jobs_v11',
+  PROCEDURES: 'ndt_procedures_v3',
+  INCIDENTS: 'ndt_incidents_v2',
   CURRENT_USER_ROLE: 'ndt_user_role_v1',
   CURRENT_INSPECTOR_ID: 'ndt_current_inspector_id_v1'
 };

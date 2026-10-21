@@ -259,7 +259,7 @@ export const CompleteInspectionModal: React.FC<CompleteInspectionModalProps> = (
 
           <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400 flex items-start gap-2">
             <Lock className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-            <span>
+            <span className="min-w-0 leading-relaxed">
               {mode === 'l1_submit'
                 ? 'Submitting locks your findings for supervisor evaluation. You cannot change Pass/Fail — only the supervisor evaluates acceptance.'
                 : 'Completing locks the inspection record, timestamps completion, and queues Level 3 QA review.'}

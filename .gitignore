@@ -38,3 +38,7 @@ Thumbs.db
 
 # Coverage / test
 coverage/
+
+# Office lock files
+.~lock.*
+**/.~lock.*

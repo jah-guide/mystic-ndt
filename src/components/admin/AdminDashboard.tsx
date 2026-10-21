@@ -10,6 +10,16 @@ import { checkExpiry } from '../../utils/validation';
 import { JobFormModal } from './JobFormModal';
 import { ReportViewModal } from '../reports/ReportViewModal';
 
+/** Payload when KPI cards deep-link into Jobs with filters matching card counts. */
+export type JobsNavFilter =
+  | 'OPEN' // status !== Completed (matches Open Jobs KPI, includes Draft)
+  | 'AWAITING_SIGN_OFF' // In Progress | Awaiting Supervisor
+  | 'COMPLETED_MONTH'; // Completed + completedAt in current calendar month
+
+export interface AdminNavigatePayload {
+  jobsFilter?: JobsNavFilter;
+}
+
 interface AdminDashboardProps {
   jobs: Job[];
   customers: Customer[];
@@ -17,7 +27,7 @@ interface AdminDashboardProps {
   equipment: Equipment[];
   procedures: NdtProcedure[];
   settings: CompanySettings;
-  onNavigateToTab: (tab: string) => void;
+  onNavigateToTab: (tab: string, payload?: AdminNavigatePayload) => void;
   onOpenInspector: (id: string) => void;
   onOpenEquipment: (id: string) => void;
   onOpenJobDetail: (job: Job) => void;
@@ -104,13 +114,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
       </div>
 
-      {/* KPI Cards Grid */}
+      {/* KPI Cards Grid — each card deep-links to the same set its count uses */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         
-        {/* Card 1: Open Jobs */}
-        <div 
-          onClick={() => onNavigateToTab('jobs')}
-          className="bg-slate-900 border border-slate-800 hover:border-sky-500/40 p-4 sm:p-5 rounded-2xl shadow-lg transition-all cursor-pointer group"
+        {/* Card 1: Open Jobs → Jobs filtered status !== Completed */}
+        <button
+          type="button"
+          title="View open jobs (not completed)"
+          onClick={() => onNavigateToTab('jobs', { jobsFilter: 'OPEN' })}
+          className="text-left bg-slate-900 border border-slate-800 hover:border-sky-500/40 hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60 p-4 sm:p-5 rounded-2xl shadow-lg transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between text-slate-400 mb-2">
             <span className="text-xs font-bold uppercase tracking-wider">Open Jobs</span>
@@ -122,12 +134,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <p className="text-[11px] text-slate-400 mt-1">
             {jobs.filter(j => j.status === 'Assigned').length} assigned • {jobs.filter(j => j.status === 'In Progress').length} in progress • {jobs.filter(j => j.status === 'Awaiting Supervisor').length} awaiting supervisor • {jobs.filter(j => j.status === 'Revision Required').length} revision required
           </p>
-        </div>
+        </button>
 
-        {/* Card 2: Completed This Month */}
-        <div 
-          onClick={() => onNavigateToTab('jobs')}
-          className="bg-slate-900 border border-slate-800 hover:border-emerald-500/40 p-4 sm:p-5 rounded-2xl shadow-lg transition-all cursor-pointer group"
+        {/* Card 2: Completed This Month → Completed + completedAt this month */}
+        <button
+          type="button"
+          title="View jobs completed this month"
+          onClick={() => onNavigateToTab('jobs', { jobsFilter: 'COMPLETED_MONTH' })}
+          className="text-left bg-slate-900 border border-slate-800 hover:border-emerald-500/40 hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 p-4 sm:p-5 rounded-2xl shadow-lg transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between text-slate-400 mb-2">
             <span className="text-xs font-bold uppercase tracking-wider">Completed Month</span>
@@ -137,12 +151,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
           <div className="text-2xl sm:text-3xl font-black text-white">{completedThisMonth.length}</div>
           <p className="text-[11px] text-slate-400 mt-1">Official reports dispatched</p>
-        </div>
+        </button>
 
-        {/* Card 3: In Progress / Awaiting Completion */}
-        <div 
-          onClick={() => onNavigateToTab('jobs')}
-          className="bg-slate-900 border border-slate-800 hover:border-amber-500/40 p-4 sm:p-5 rounded-2xl shadow-lg transition-all cursor-pointer group"
+        {/* Card 3: Awaiting Sign-off → In Progress | Awaiting Supervisor */}
+        <button
+          type="button"
+          title="View jobs awaiting sign-off"
+          onClick={() => onNavigateToTab('jobs', { jobsFilter: 'AWAITING_SIGN_OFF' })}
+          className="text-left bg-slate-900 border border-slate-800 hover:border-amber-500/40 hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60 p-4 sm:p-5 rounded-2xl shadow-lg transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between text-slate-400 mb-2">
             <span className="text-xs font-bold uppercase tracking-wider">Awaiting Sign-off</span>
@@ -151,13 +167,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
           <div className="text-2xl sm:text-3xl font-black text-white">{awaitingCompletion.length}</div>
-          <p className="text-[11px] text-slate-400 mt-1">Active on technician phones</p>
-        </div>
+          <p className="text-[11px] text-slate-400 mt-1">In progress or awaiting supervisor</p>
+        </button>
 
-        {/* Card 4: Clients & Assets */}
-        <div 
+        {/* Card 4: Active Clients → Customers list */}
+        <button
+          type="button"
+          title="View customers"
           onClick={() => onNavigateToTab('customers')}
-          className="bg-slate-900 border border-slate-800 hover:border-purple-500/40 p-4 sm:p-5 rounded-2xl shadow-lg transition-all cursor-pointer group"
+          className="text-left bg-slate-900 border border-slate-800 hover:border-purple-500/40 hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/60 p-4 sm:p-5 rounded-2xl shadow-lg transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between text-slate-400 mb-2">
             <span className="text-xs font-bold uppercase tracking-wider">Active Clients</span>
@@ -169,7 +187,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <p className="text-[11px] text-slate-400 mt-1">
             {inspectors.length} certified inspectors • {equipment.length} tools
           </p>
-        </div>
+        </button>
 
       </div>
 
@@ -415,8 +433,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
-      {/* Quick Job Creator Modal */}
+      {/* Quick Job Creator Modal — remount on each open so job number regenerates */}
       <JobFormModal
+        key={isCreateJobOpen ? 'create-open' : 'create-closed'}
         isOpen={isCreateJobOpen}
         onClose={() => setIsCreateJobOpen(false)}
         onJobCreated={(newJob) => {

@@ -5,7 +5,7 @@ import {
 import { UserRole, Customer, Inspector, Equipment, Job, CompanySettings, NdtProcedure } from './types';
 import { StorageService } from './services/storage';
 import { Header } from './components/common/Header';
-import { AdminDashboard } from './components/admin/AdminDashboard';
+import { AdminDashboard, type AdminNavigatePayload, type JobsNavFilter } from './components/admin/AdminDashboard';
 import { JobList } from './components/admin/JobList';
 import { CustomerManagement } from './components/admin/CustomerManagement';
 import { InspectorManagement } from './components/admin/InspectorManagement';
@@ -21,10 +21,23 @@ import { Level3Dashboard } from './components/verifier/Level3Dashboard';
 type AdminTab = 'dashboard' | 'jobs' | 'customers' | 'inspectors' | 'equipment' | 'renewals' | 'dispatch' | 'settings';
 
 export const App: React.FC = () => {
-  const [role, setRole] = useState<UserRole>('technician'); // Default to mobile technician view
+  const [role, setRole] = useState<UserRole>('admin');
   const [adminTab, setAdminTab] = useState<AdminTab>('dashboard');
   const [focusInspectorId, setFocusInspectorId] = useState<string | null>(null);
   const [focusEquipmentId, setFocusEquipmentId] = useState<string | null>(null);
+  /** Jobs list filter from dashboard KPI; cleared when opening Jobs from nav. */
+  const [jobsNavFilter, setJobsNavFilter] = useState<JobsNavFilter | null>(null);
+  const [jobsListKey, setJobsListKey] = useState(0);
+
+  const goAdminTab = (tab: AdminTab, payload?: AdminNavigatePayload) => {
+    if (tab === 'jobs') {
+      setJobsNavFilter(payload?.jobsFilter ?? null);
+      setJobsListKey((k) => k + 1);
+    } else {
+      setJobsNavFilter(null);
+    }
+    setAdminTab(tab);
+  };
 
   // Application Data State
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -78,7 +91,7 @@ export const App: React.FC = () => {
       loadAllData();
       setActiveJobId(null);
       setSelectedInspectorId('insp-4');
-      setRole('technician');
+      setRole('admin');
     }
   };
 
@@ -93,7 +106,7 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white">
       
-      {/* Header with Role Switcher (Tech / L3 Verifier / Admin) */}
+      {/* Header — single Demo-as persona switcher (no auth) */}
       <Header
         currentRole={role}
         onRoleChange={(newRole) => {
@@ -101,9 +114,12 @@ export const App: React.FC = () => {
           setActiveJobId(null);
           setCockpitEditJobId(null);
         }}
-        inspectors={inspectors}
         selectedInspectorId={selectedInspectorId}
-        onInspectorChange={setSelectedInspectorId}
+        onInspectorChange={(id) => {
+          setSelectedInspectorId(id);
+          setActiveJobId(null);
+          setCockpitEditJobId(null);
+        }}
         onResetData={handleResetData}
       />
 
@@ -133,7 +149,7 @@ export const App: React.FC = () => {
             <div className="flex items-center gap-1.5 overflow-x-auto pb-3 mb-6 border-b border-slate-800 scrollbar-none">
               <button
                 type="button"
-                onClick={() => setAdminTab('dashboard')}
+                onClick={() => goAdminTab('dashboard')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
                   adminTab === 'dashboard'
                     ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
@@ -146,7 +162,7 @@ export const App: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setAdminTab('jobs')}
+                onClick={() => goAdminTab('jobs')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
                   adminTab === 'jobs'
                     ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
@@ -159,7 +175,7 @@ export const App: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setAdminTab('customers')}
+                onClick={() => goAdminTab('customers')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
                   adminTab === 'customers'
                     ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
@@ -172,7 +188,7 @@ export const App: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setAdminTab('inspectors')}
+                onClick={() => goAdminTab('inspectors')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
                   adminTab === 'inspectors'
                     ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
@@ -185,7 +201,7 @@ export const App: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setAdminTab('equipment')}
+                onClick={() => goAdminTab('equipment')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
                   adminTab === 'equipment'
                     ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
@@ -198,7 +214,7 @@ export const App: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setAdminTab('renewals')}
+                onClick={() => goAdminTab('renewals')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
                   adminTab === 'renewals'
                     ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
@@ -211,7 +227,7 @@ export const App: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setAdminTab('dispatch')}
+                onClick={() => goAdminTab('dispatch')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
                   adminTab === 'dispatch'
                     ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
@@ -224,7 +240,7 @@ export const App: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setAdminTab('settings')}
+                onClick={() => goAdminTab('settings')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
                   adminTab === 'settings'
                     ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
@@ -245,14 +261,14 @@ export const App: React.FC = () => {
                 equipment={equipment}
                 procedures={procedures}
                 settings={settings}
-                onNavigateToTab={(t) => setAdminTab(t as AdminTab)}
+                onNavigateToTab={(t, payload) => goAdminTab(t as AdminTab, payload)}
                 onOpenInspector={(id) => {
                   setFocusInspectorId(id);
-                  setAdminTab('inspectors');
+                  goAdminTab('inspectors');
                 }}
                 onOpenEquipment={(id) => {
                   setFocusEquipmentId(id);
-                  setAdminTab('equipment');
+                  goAdminTab('equipment');
                 }}
                 onOpenJobDetail={(j) => setActiveJobId(j.id)}
                 onJobUpdated={handleJobUpdated}
@@ -261,6 +277,7 @@ export const App: React.FC = () => {
 
             {adminTab === 'jobs' && (
               <JobList
+                key={`jobs-${jobsListKey}-${jobsNavFilter ?? 'ALL'}`}
                 jobs={jobs}
                 customers={customers}
                 inspectors={inspectors}
@@ -269,6 +286,7 @@ export const App: React.FC = () => {
                 settings={settings}
                 onJobUpdated={handleJobUpdated}
                 onOpenJobDetail={(j) => setActiveJobId(j.id)}
+                initialStatusFilter={jobsNavFilter ?? 'ALL'}
               />
             )}
 
@@ -276,6 +294,9 @@ export const App: React.FC = () => {
               <CustomerManagement
                 customers={customers}
                 jobs={jobs}
+                inspectors={inspectors}
+                equipment={equipment}
+                settings={settings}
                 onCustomerUpdated={loadAllData}
                 onOpenJob={(id) => setActiveJobId(id)}
               />
@@ -286,6 +307,9 @@ export const App: React.FC = () => {
                 key={focusInspectorId ? `insp-${focusInspectorId}` : 'inspectors-list'}
                 inspectors={inspectors}
                 jobs={jobs}
+                customers={customers}
+                equipment={equipment}
+                settings={settings}
                 onInspectorUpdated={loadAllData}
                 onOpenJob={(id) => setActiveJobId(id)}
                 focusInspectorId={focusInspectorId}
@@ -362,6 +386,7 @@ export const App: React.FC = () => {
             settings={settings}
             currentInspectorId={selectedInspectorId}
             onJobUpdated={handleJobUpdated}
+            onInspectorsUpdated={loadAllData}
           />
         )}
 
@@ -369,6 +394,7 @@ export const App: React.FC = () => {
 
       {role === 'admin' && cockpitEditJob && (
         <JobFormModal
+          key={cockpitEditJob.id}
           isOpen={Boolean(cockpitEditJob)}
           onClose={() => setCockpitEditJobId(null)}
           onJobCreated={(updatedJob) => {
@@ -391,7 +417,7 @@ export const App: React.FC = () => {
             <span className="text-slate-400 font-medium">Local Storage Autosave Active</span>
           </div>
           <div>
-            <span>{settings.companyName} • SABS / SAQCC / ISO 9712 Compliant</span>
+            <span>{settings.companyName} • ISO 9712–shaped demo workflow (not an accredited SoR)</span>
           </div>
         </div>
       </footer>
